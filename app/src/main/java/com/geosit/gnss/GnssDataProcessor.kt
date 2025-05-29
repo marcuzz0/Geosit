@@ -201,7 +201,7 @@ class GnssDataProcessor @Inject constructor() {
             val buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN)
 
             // iTOW (0-3)
-            val iTow = buffer.int
+            buffer.position(4)
 
             // Date/Time (4-9)
             val year = buffer.short.toInt()
@@ -215,11 +215,9 @@ class GnssDataProcessor @Inject constructor() {
             val valid = buffer.get().toInt()
             val validDate = (valid and 0x01) != 0
             val validTime = (valid and 0x02) != 0
-            val fullyResolved = (valid and 0x04) != 0
-            val validMag = (valid and 0x08) != 0
 
             // Time accuracy (11-14)
-            val tAcc = buffer.int
+            buffer.position(15)
 
             // Nanoseconds (15-18)
             val nano = buffer.int
@@ -230,16 +228,10 @@ class GnssDataProcessor @Inject constructor() {
             // Fix status flags (20)
             val flags = buffer.get().toInt()
             val gnssFixOk = (flags and 0x01) != 0
-            val diffSoln = (flags and 0x02) != 0
-            val psmState = (flags shr 2) and 0x07
-            val headVehValid = (flags and 0x20) != 0
             val carrSoln = (flags shr 6) and 0x03
 
             // Additional flags (21)
-            val flags2 = buffer.get().toInt()
-            val confirmedAvailable = (flags2 and 0x20) != 0
-            val confirmedDate = (flags2 and 0x40) != 0
-            val confirmedTime = (flags2 and 0x80) != 0
+            buffer.position(22)
 
             // Number of satellites (22)
             val numSV = buffer.get().toInt() and 0xFF
@@ -250,39 +242,27 @@ class GnssDataProcessor @Inject constructor() {
             // Position (28-39)
             val lon = buffer.int / 1e7
             val lat = buffer.int / 1e7
-            val height = buffer.int / 1000.0 // Height above ellipsoid (mm to m)
+            buffer.position(36) // Skip height
             val hMSL = buffer.int / 1000.0 // Height above mean sea level (mm to m)
 
             // Accuracy (40-47)
             val hAcc = buffer.int / 1000.0 // Horizontal accuracy (mm to m)
-            val vAcc = buffer.int / 1000.0 // Vertical accuracy (mm to m)
+            buffer.position(48) // Skip vAcc
 
             // Velocity (48-59)
             val velN = buffer.int / 1000.0 // North velocity (mm/s to m/s)
             val velE = buffer.int / 1000.0 // East velocity (mm/s to m/s)
-            val velD = buffer.int / 1000.0 // Down velocity (mm/s to m/s)
+            buffer.position(60) // Skip velD
 
             // Ground speed and heading (60-67)
-            val gSpeed = buffer.int / 1000.0 // Ground speed (mm/s to m/s)
+            buffer.position(64) // Skip gSpeed
             val headMot = buffer.int / 1e5 // Heading of motion (degrees)
 
-            // Speed accuracy (68-71)
-            val sAcc = buffer.int / 1000.0 // Speed accuracy (mm/s to m/s)
-
-            // Heading accuracy (72-75)
-            val headAcc = buffer.int / 1e5 // Heading accuracy (degrees)
+            // Skip speed accuracy and heading accuracy
+            buffer.position(76)
 
             // DOP values (76-81)
             val pDOP = buffer.short / 100.0
-
-            // Skip reserved bytes
-            buffer.position(82)
-
-            // More flags (82-89) - skip invalid flags
-            buffer.position(90)
-
-            // Vehicle heading (90-91) - if available
-            val headVeh = if (buffer.remaining() >= 2) buffer.short / 100.0 else 0.0
 
             // Determine fix type based on UBX protocol
             val gnssFixType = when (fixType) {
@@ -290,8 +270,8 @@ class GnssDataProcessor @Inject constructor() {
                 1 -> FixType.DEAD_RECKONING
                 2 -> FixType.FIX_2D
                 3 -> FixType.FIX_3D
-                4 -> FixType.DGPS // GPS + SBAS
-                5 -> FixType.RTK_FIXED // Time only fix
+                4 -> FixType.DGPS
+                5 -> FixType.RTK_FIXED
                 else -> FixType.NO_FIX
             }
 
@@ -323,7 +303,7 @@ class GnssDataProcessor @Inject constructor() {
             _currentPosition.value = GnssPosition(
                 latitude = lat,
                 longitude = lon,
-                altitude = hMSL, // Use MSL altitude
+                altitude = hMSL,
                 fixType = finalFixType,
                 satellitesUsed = numSV,
                 hdop = hdop,

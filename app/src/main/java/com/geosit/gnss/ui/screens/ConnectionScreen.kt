@@ -316,17 +316,16 @@ fun ConnectionScreen(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Filter out connected device
-            val availableDevices = uiState.availableDevices.filter { device ->
-                device != uiState.connectedDevice
-            }
+            items(uiState.availableDevices) { device ->
+                val isThisDeviceConnecting = uiState.isConnecting && uiState.connectedDevice == device
+                val isThisDeviceConnected = uiState.isConnected && uiState.connectedDevice == device
 
-            items(availableDevices) { device ->
                 DeviceCard(
                     device = device,
-                    isConnecting = uiState.isConnecting && uiState.connectedDevice == device,
+                    isConnecting = isThisDeviceConnecting,
+                    isConnected = isThisDeviceConnected,
                     onConnect = { viewModel.connectToDevice(device) },
-                    onRemove = if (device is Device.Tcp) {
+                    onRemove = if (device is Device.Tcp && !isThisDeviceConnected) {
                         { viewModel.removeTcpDevice(device) }
                     } else null
                 )
@@ -388,12 +387,20 @@ fun ConnectionScreen(
 fun DeviceCard(
     device: Device,
     isConnecting: Boolean,
+    isConnected: Boolean,
     onConnect: () -> Unit,
     onRemove: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        onClick = { if (!isConnecting) onConnect() }
+        onClick = { if (!isConnecting && !isConnected) onConnect() },
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                isConnected -> MaterialTheme.colorScheme.primaryContainer
+                isConnecting -> MaterialTheme.colorScheme.tertiaryContainer
+                else -> MaterialTheme.colorScheme.surface
+            }
+        )
     ) {
         Row(
             modifier = Modifier
@@ -416,19 +423,32 @@ fun DeviceCard(
                         modifier = Modifier
                             .size(20.dp)
                             .padding(end = 4.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = when {
+                            isConnected -> MaterialTheme.colorScheme.onPrimaryContainer
+                            isConnecting -> MaterialTheme.colorScheme.onTertiaryContainer
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                     Text(
                         device.displayName(),
                         style = MaterialTheme.typography.bodyLarge,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        color = when {
+                            isConnected -> MaterialTheme.colorScheme.onPrimaryContainer
+                            isConnecting -> MaterialTheme.colorScheme.onTertiaryContainer
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
                     )
                 }
                 Text(
                     device.connectionInfo(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = when {
+                        isConnected -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        isConnecting -> MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
             }
 
@@ -436,21 +456,36 @@ fun DeviceCard(
                 if (onRemove != null) {
                     IconButton(
                         onClick = onRemove,
-                        enabled = !isConnecting
+                        enabled = !isConnecting && !isConnected
                     ) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "Remove",
-                            tint = MaterialTheme.colorScheme.error
+                            tint = if (!isConnecting && !isConnected) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            }
                         )
                     }
                 }
 
-                if (isConnecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp
-                    )
+                when {
+                    isConnecting -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    isConnected -> {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = "Connected",
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
