@@ -5,10 +5,14 @@ import android.os.Environment
 import com.geosit.gnss.data.connection.ConnectionManager
 import com.geosit.gnss.data.model.*
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
@@ -46,36 +50,22 @@ class RecordingRepository @Inject constructor(
     private var recordingStartTime: Long = 0
     private var stopAndGoCounter = 1
 
-    // Listener per i dati ricevuti
-    private val dataReceivedListener = object : ConnectionManager.DataReceivedListener {
-        override fun onDataReceived(data: ByteArray) {
-            Timber.d("DataReceivedListener called with ${data.size} bytes")
-            recordData(data)
-        }
-    }
-
     init {
-        // Registra il listener per i dati
-        connectionManager.addDataListener(dataReceivedListener)
-        Timber.d("RecordingRepository initialized - listener registered")
-
-        // Verifica che il ConnectionManager sia lo stesso istanza
-        Timber.d("ConnectionManager instance: ${connectionManager.hashCode()}")
+        // Observe connection data
+        scope.launch {
+            connectionManager.connectionState.collect { connState ->
+                if (_recordingState.value.isRecording && connState.receivedData != null) {
+                    recordData(connState.receivedData)
+                }
+            }
+        }
     }
 
-    // Metodo privato per registrare dati (chiamato dal listener)
     private fun recordData(data: ByteArray) {
-        if (!_recordingState.value.isRecording) {
-            Timber.d("RecordData called but not recording")
-            return
-        }
-
-        Timber.d("Recording ${data.size} bytes")
-
         scope.launch {
             try {
                 outputStream?.write(data)
-                outputStream?.flush() // Importante: flush dei dati
+                outputStream?.flush()
 
                 val currentBytes = _recordingState.value.recordedBytes + data.size
                 val duration = System.currentTimeMillis() - recordingStartTime
@@ -87,18 +77,8 @@ class RecordingRepository @Inject constructor(
                     dataReceivedCount = currentCount
                 )
 
-                Timber.d("Updated state - bytes: $currentBytes, duration: ${duration/1000}s")
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to record data")
-                // Non fermare la registrazione per errori minori
-                if (e.message?.contains("closed") == true) {
-                    withContext(Dispatchers.Main) {
-                        _recordingState.value = _recordingState.value.copy(
-                            error = "Recording error: ${e.message}"
-                        )
-                    }
-                }
             }
         }
     }
@@ -127,9 +107,9 @@ class RecordingRepository @Inject constructor(
                 val fileName = "${timestamp}.ubx"
                 val sessionId = UUID.randomUUID().toString()
 
-                // Create recording directory - usa directory app-specific
+                // Create recording directory
                 val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-                    ?: context.filesDir // Fallback se external storage non disponibile
+                    ?: context.filesDir
 
                 val recordingDir = File(documentsDir, "GeoSit/$timestamp")
                 if (!recordingDir.exists()) {
@@ -144,10 +124,8 @@ class RecordingRepository @Inject constructor(
                 val csvFile = File(recordingDir, "${timestamp}.csv")
                 csvWriter = FileWriter(csvFile)
 
-                // Write CSV header sul thread IO
-                withContext(Dispatchers.IO) {
-                    writeCSVHeader(mode, pointName, instrumentHeight, staticDuration)
-                }
+                // Write CSV header
+                writeCSVHeader(mode, pointName, instrumentHeight, staticDuration)
 
                 // Clear data buffer
                 connectionManager.clearBuffer()
@@ -165,16 +143,14 @@ class RecordingRepository @Inject constructor(
                     staticDuration = staticDuration
                 )
 
-                withContext(Dispatchers.Main) {
-                    _recordingState.value = RecordingState(
-                        isRecording = true,
-                        currentSession = session,
-                        recordingMode = mode,
-                        stopAndGoPoints = emptyList(),
-                        recordedBytes = 0,
-                        error = null
-                    )
-                }
+                _recordingState.value = RecordingState(
+                    isRecording = true,
+                    currentSession = session,
+                    recordingMode = mode,
+                    stopAndGoPoints = emptyList(),
+                    recordedBytes = 0,
+                    error = null
+                )
 
                 Timber.d("Recording started: $fileName, mode: $mode")
 
@@ -185,12 +161,9 @@ class RecordingRepository @Inject constructor(
 
             } catch (e: Exception) {
                 Timber.e(e, "Failed to start recording")
-                withContext(Dispatchers.Main) {
-                    _recordingState.value = _recordingState.value.copy(
-                        error = "Failed to start recording: ${e.message}",
-                        isRecording = false
-                    )
-                }
+                _recordingState.value = _recordingState.value.copy(
+                    error = "Failed to start recording: ${e.message}"
+                )
             }
         }
     }
@@ -203,31 +176,23 @@ class RecordingRepository @Inject constructor(
 
         scope.launch {
             try {
+                // Close files
+                outputStream?.close()
+                csvWriter?.close()
+
                 val session = _recordingState.value.currentSession
-                val endTime = Date()
-
-                // Prima aggiorna lo stato per fermare la registrazione
-                _recordingState.value = _recordingState.value.copy(
-                    isRecording = false
-                )
-
-                // Poi chiudi i file
-                try {
-                    outputStream?.flush()
-                    outputStream?.close()
-                    csvWriter?.close()
-                } catch (e: Exception) {
-                    Timber.e(e, "Error closing files")
-                }
-
                 if (session != null) {
+                    val endTime = Date()
                     val fileSize = recordingFile?.length() ?: 0
+
+                    // Write final CSV data
+                    writeFinalCSVData(session, endTime)
 
                     val completedSession = session.copy(
                         endTime = endTime,
                         isCompleted = true,
                         fileSize = fileSize,
-                        dataPointsCount = (_recordingState.value.recordedBytes / 100).toInt()
+                        dataPointsCount = _recordingState.value.dataReceivedCount.toInt()
                     )
 
                     _recordingState.value = RecordingState(
@@ -248,7 +213,6 @@ class RecordingRepository @Inject constructor(
             } catch (e: Exception) {
                 Timber.e(e, "Failed to stop recording")
                 _recordingState.value = _recordingState.value.copy(
-                    isRecording = false,
                     error = "Failed to stop recording: ${e.message}"
                 )
             }
@@ -370,17 +334,7 @@ class RecordingRepository @Inject constructor(
         return when {
             bytes < 1024 -> "$bytes B"
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            else -> "${bytes / (1024 * 1024)} MB"
-        }
-    }
-
-    // Cleanup quando il repository viene distrutto
-    fun cleanup() {
-        connectionManager.removeDataListener(dataReceivedListener)
-        scope.launch {
-            if (_recordingState.value.isRecording) {
-                stopRecording()
-            }
+            else -> String.format("%.2f MB", bytes / (1024.0 * 1024.0))
         }
     }
 }

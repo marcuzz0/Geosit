@@ -1,6 +1,8 @@
 package com.geosit.gnss.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -11,8 +13,6 @@ import com.geosit.gnss.data.gnss.FixType
 import com.geosit.gnss.data.model.displayName
 import com.geosit.gnss.ui.viewmodel.DashboardViewModel
 import java.util.Locale
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FiberManualRecord
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -3,12 +3,8 @@ package com.geosit.gnss.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.geosit.gnss.data.connection.ConnectionManager
-import com.geosit.gnss.data.gnss.SatelliteInfo
 import com.geosit.gnss.data.recording.RecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,31 +18,11 @@ class DashboardViewModel @Inject constructor(
     val gnssPosition = connectionManager.currentPosition
     val recordingState = recordingRepository.recordingState
 
-    // Mock satellite data for now
-    private val _satellites = MutableStateFlow<List<SatelliteInfo>>(emptyList())
-    val satellites: StateFlow<List<SatelliteInfo>> = _satellites.asStateFlow()
+    // Get satellites directly from connection manager
+    val satellites = connectionManager.satellites
 
-    data class GnssStatistics(
-        val totalMessages: Int = 0,
-        val lastMessageType: String = "None"
-    )
-
-    private val _gnssStatistics = MutableStateFlow(GnssStatistics())
-    val gnssStatistics: StateFlow<GnssStatistics> = _gnssStatistics.asStateFlow()
-
-    init {
-        // Update statistics based on connection state
-        viewModelScope.launch {
-            connectionManager.connectionState.collect { state ->
-                if (state.isConnected && state.dataReceivedCount > 0) {
-                    _gnssStatistics.value = GnssStatistics(
-                        totalMessages = state.dataReceivedCount.toInt(),
-                        lastMessageType = "UBX/NMEA"
-                    )
-                }
-            }
-        }
-    }
+    // Get GNSS statistics from connection manager
+    val gnssStatistics = connectionManager.gnssStatistics
 
     fun getRecordingDuration(): String {
         return recordingRepository.getRecordingDurationString()
@@ -54,5 +30,11 @@ class DashboardViewModel @Inject constructor(
 
     fun getRecordingSize(): String {
         return recordingRepository.getRecordingSizeString()
+    }
+
+    fun configureGnssReceiver() {
+        viewModelScope.launch {
+            connectionManager.configureGnssReceiver()
+        }
     }
 }

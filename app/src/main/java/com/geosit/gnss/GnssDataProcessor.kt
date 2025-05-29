@@ -94,6 +94,8 @@ class GnssDataProcessor @Inject constructor() {
     )
 
     fun processData(data: ByteArray) {
+        Timber.d("GnssDataProcessor: Processing ${data.size} bytes")
+
         // Update data rate
         updateDataRate(data.size)
 
@@ -108,6 +110,7 @@ class GnssDataProcessor @Inject constructor() {
         // Parse GNSS messages
         try {
             val messages = parser.parseData(data)
+            Timber.d("Parsed ${messages.size} messages from ${data.size} bytes")
 
             messages.forEach { message ->
                 updateStatistics(message)
@@ -115,10 +118,12 @@ class GnssDataProcessor @Inject constructor() {
                 when (message) {
                     is GnssData.UbxMessage -> {
                         hasUbxData = true
+                        Timber.d("Processing UBX message: class=${message.messageClass.toString(16)}, id=${message.messageId.toString(16)}")
                         processUbxMessage(message)
                     }
                     is GnssData.NmeaSentence -> {
                         hasNmeaData = true
+                        Timber.d("Processing NMEA: ${message.sentence.take(6)}")
                         processNmeaSentence(message)
                     }
                 }
@@ -342,6 +347,7 @@ class GnssDataProcessor @Inject constructor() {
             buffer.position(8)
 
             val satellites = mutableListOf<SatelliteInfo>()
+            var usedCount = 0
 
             // Each satellite is 12 bytes
             for (i in 0 until numSvs) {
@@ -376,8 +382,8 @@ class GnssDataProcessor @Inject constructor() {
                 val orbitSource = (flags shr 8) and 0x07
                 val ephAvail = (flags and 0x800) != 0
                 val almAvail = (flags and 0x1000) != 0
-                val anoAvail = (flags and 0x2000) != 0
-                val aopAvail = (flags and 0x4000) != 0
+
+                if (used) usedCount++
 
                 val constellation = when (gnssId) {
                     0 -> Constellation.GPS
@@ -389,21 +395,34 @@ class GnssDataProcessor @Inject constructor() {
                     else -> Constellation.UNKNOWN
                 }
 
-                satellites.add(
-                    SatelliteInfo(
-                        svId = svId,
-                        constellation = constellation,
-                        elevation = elev,
-                        azimuth = azim,
-                        snr = cno,
-                        used = used
+                // Solo aggiungi satelliti con SNR > 0 e che sono visibili
+                if (cno > 0 && elev >= -90 && elev <= 90) {
+                    satellites.add(
+                        SatelliteInfo(
+                            svId = svId,
+                            constellation = constellation,
+                            elevation = elev,
+                            azimuth = azim,
+                            snr = cno,
+                            used = used
+                        )
                     )
-                )
+
+                    // Debug per satelliti usati
+                    if (used) {
+                        Timber.d("SAT USED: $constellation-$svId, SNR=$cno, Elev=$elev°")
+                    }
+                }
             }
 
             _satellites.value = satellites
 
-            Timber.d("NAV-SAT: ${satellites.size} satellites, ${satellites.count { it.used }} used")
+            Timber.d("NAV-SAT: ${satellites.size} satellites visible, $usedCount used in solution")
+
+            // Se vediamo satelliti ma nessuno è usato, potrebbe essere un problema di fix
+            if (satellites.isNotEmpty() && usedCount == 0) {
+                Timber.w("NAV-SAT: Satellites visible but none used - receiver may still be acquiring fix")
+            }
 
         } catch (e: Exception) {
             Timber.e(e, "Error parsing NAV-SAT")
@@ -652,13 +671,27 @@ class GnssDataProcessor @Inject constructor() {
                             "${time.substring(0, 2)}:${time.substring(2, 4)}:${time.substring(4, 6)}"
                 } else ""
 
+                // Position mode indicator (if present)
+                val posMode = if (parts.size > 12) parts[12].trim() else ""
+
+                val fixType = when (posMode) {
+                    "A" -> FixType.FIX_3D
+                    "D" -> FixType.DGPS
+                    "E" -> FixType.NO_FIX
+                    "N" -> FixType.NO_FIX
+                    else -> _currentPosition.value.fixType
+                }
+
                 _currentPosition.value = _currentPosition.value.copy(
+                    latitude = lat,
+                    longitude = lon,
                     speed = speedMs,
                     heading = course,
+                    fixType = if (fixType != FixType.NO_FIX) fixType else _currentPosition.value.fixType,
                     utcTime = if (dateTime.isNotEmpty()) dateTime else _currentPosition.value.utcTime
                 )
 
-                Timber.d("RMC: Speed=$speedMs m/s, Course=$course°")
+                Timber.d("RMC: Pos=($lat,$lon), Speed=$speedMs m/s, Course=$course°")
             }
 
         } catch (e: Exception) {
@@ -677,10 +710,10 @@ class GnssDataProcessor @Inject constructor() {
             val fixMode = parts[2].trim().toIntOrNull() ?: 1
 
             // Satellite PRNs (fields 3-14)
-            val satellites = mutableListOf<Int>()
+            val usedSatellites = mutableListOf<Int>()
             for (i in 3..14) {
                 if (i < parts.size) {
-                    parts[i].trim().toIntOrNull()?.let { satellites.add(it) }
+                    parts[i].trim().toIntOrNull()?.let { usedSatellites.add(it) }
                 }
             }
 
@@ -689,6 +722,9 @@ class GnssDataProcessor @Inject constructor() {
             val hdop = parts[16].trim().toDoubleOrNull() ?: 99.9
             val vdop = parts[17].trim().toDoubleOrNull() ?: 99.9
 
+            // System ID (if present in parts[18])
+            val systemId = if (parts.size > 18) parts[18].trim().toIntOrNull() else null
+
             _currentPosition.value = _currentPosition.value.copy(
                 pdop = pdop,
                 hdop = hdop,
@@ -696,27 +732,108 @@ class GnssDataProcessor @Inject constructor() {
                 fixType = when (fixMode) {
                     2 -> FixType.FIX_2D
                     3 -> FixType.FIX_3D
-                    else -> _currentPosition.value.fixType // Keep existing if not specified
-                }
+                    else -> FixType.NO_FIX
+                },
+                satellitesUsed = if (usedSatellites.isNotEmpty()) usedSatellites.size else _currentPosition.value.satellitesUsed
             )
 
-            Timber.d("GSA: Mode=$fixMode, PDOP=$pdop, HDOP=$hdop, VDOP=$vdop")
+            // Mark used satellites in our satellite list
+            val updatedSatellites = _satellites.value.map { sat ->
+                sat.copy(used = usedSatellites.contains(sat.svId))
+            }
+            _satellites.value = updatedSatellites
+
+            Timber.d("GSA: Mode=$fixMode, Used sats=${usedSatellites.size}, PDOP=$pdop, HDOP=$hdop, VDOP=$vdop")
 
         } catch (e: Exception) {
             Timber.e(e, "Error parsing GSA")
         }
     }
 
-    private fun processGSV(parts: List<String>) {
-        // Satellites in view - could be used to update satellite list
-        // For now just log
-        if (parts.size >= 4) {
-            val totalMessages = parts[1].trim().toIntOrNull() ?: 0
-            val messageNum = parts[2].trim().toIntOrNull() ?: 0
-            val satellitesInView = parts[3].trim().toIntOrNull() ?: 0
+    // Tracking GSV satellites
+    private var gsvSatellites = mutableMapOf<String, MutableList<SatelliteInfo>>()
+    private var gsvMessageCount = mutableMapOf<String, Int>()
 
-            Timber.d("GSV: Message $messageNum/$totalMessages, $satellitesInView satellites in view")
+    private fun processGSV(parts: List<String>) {
+        // Satellites in view
+        if (parts.size >= 4) {
+            try {
+                val talkerID = parts[0].substring(1, 3) // GP, GL, GA, GB, GQ
+                val totalMessages = parts[1].trim().toIntOrNull() ?: 0
+                val messageNum = parts[2].trim().toIntOrNull() ?: 0
+                val satellitesInView = parts[3].trim().toIntOrNull() ?: 0
+
+                Timber.d("GSV: $talkerID Message $messageNum/$totalMessages, $satellitesInView satellites in view")
+
+                // Initialize list for this constellation if needed
+                if (messageNum == 1) {
+                    gsvSatellites[talkerID] = mutableListOf()
+                    gsvMessageCount[talkerID] = totalMessages
+                }
+
+                // Parse satellite data (4 satellites per message max)
+                var index = 4
+                while (index + 3 < parts.size) {
+                    val svId = parts[index].trim().toIntOrNull() ?: break
+                    val elevation = parts[index + 1].trim().toIntOrNull() ?: 0
+                    val azimuth = parts[index + 2].trim().toIntOrNull() ?: 0
+                    val snr = parts[index + 3].trim().toIntOrNull() ?: 0
+
+                    if (svId > 0) {
+                        val constellation = when (talkerID) {
+                            "GP" -> Constellation.GPS
+                            "GL" -> Constellation.GLONASS
+                            "GA" -> Constellation.GALILEO
+                            "GB" -> Constellation.BEIDOU
+                            "GQ" -> Constellation.QZSS
+                            else -> Constellation.UNKNOWN
+                        }
+
+                        gsvSatellites[talkerID]?.add(
+                            SatelliteInfo(
+                                svId = svId,
+                                constellation = constellation,
+                                elevation = elevation,
+                                azimuth = azimuth,
+                                snr = snr,
+                                used = false // Will be updated by GSA
+                            )
+                        )
+                    }
+
+                    index += 4
+                }
+
+                // If this is the last message for this constellation, update satellites
+                if (messageNum == totalMessages) {
+                    updateSatelliteList()
+                }
+
+            } catch (e: Exception) {
+                Timber.e(e, "Error parsing GSV")
+            }
         }
+    }
+
+    private fun updateSatelliteList() {
+        val allSatellites = mutableListOf<SatelliteInfo>()
+        gsvSatellites.values.forEach { satellites ->
+            allSatellites.addAll(satellites)
+        }
+
+        // Update satellite list
+        _satellites.value = allSatellites
+
+        // If we don't have satellite count from GGA, estimate from GSA
+        if (_currentPosition.value.satellitesUsed == 0 && _currentPosition.value.fixType != FixType.NO_FIX) {
+            // Count satellites with good SNR that could be used
+            val usableSats = allSatellites.count { it.snr > 20 }
+            _currentPosition.value = _currentPosition.value.copy(
+                satellitesUsed = minOf(usableSats, 12) // Typical max used is 12
+            )
+        }
+
+        Timber.d("Total satellites in view: ${allSatellites.size}")
     }
 
     private fun processGLL(parts: List<String>) {
@@ -734,12 +851,28 @@ class GnssDataProcessor @Inject constructor() {
             val status = parts[6].trim() // A=active, V=void
 
             if (status == "A") {
+                // Mode indicator (if present)
+                val mode = if (parts.size > 7) parts[7].trim() else ""
+
+                // Determine fix type from mode indicator
+                val fixType = when (mode) {
+                    "A" -> FixType.FIX_3D  // Autonomous
+                    "D" -> FixType.DGPS    // Differential
+                    "E" -> FixType.NO_FIX  // Estimated
+                    "M" -> FixType.MANUAL_INPUT
+                    "S" -> FixType.SIMULATION
+                    "N" -> FixType.NO_FIX
+                    else -> _currentPosition.value.fixType // Keep existing
+                }
+
                 _currentPosition.value = _currentPosition.value.copy(
                     latitude = lat,
-                    longitude = lon
+                    longitude = lon,
+                    fixType = if (fixType == FixType.NO_FIX && _currentPosition.value.fixType != FixType.NO_FIX)
+                        _currentPosition.value.fixType else fixType
                 )
 
-                Timber.d("GLL: Pos=($lat,$lon)")
+                Timber.d("GLL: Pos=($lat,$lon), Mode=$mode")
             }
 
         } catch (e: Exception) {

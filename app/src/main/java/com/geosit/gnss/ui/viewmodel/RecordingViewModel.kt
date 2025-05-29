@@ -147,6 +147,9 @@ class RecordingViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         stopTimer()
-        recordingRepository.cleanup()
+        // Non chiamare cleanup() se non esiste
+        if (recordingState.value.isRecording) {
+            stopRecording()
+        }
     }
 }
