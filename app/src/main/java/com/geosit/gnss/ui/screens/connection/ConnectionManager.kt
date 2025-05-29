@@ -4,16 +4,14 @@ import android.content.Context
 import android.hardware.usb.UsbManager
 import com.geosit.gnss.data.gnss.GnssDataProcessor
 import com.geosit.gnss.data.model.Device
-import com.geosit.gnss.data.model.displayName  // <-- Aggiungi questo import
+import com.geosit.gnss.data.model.displayName
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,44 +21,86 @@ class ConnectionManager @Inject constructor(
     private val gnssDataProcessor: GnssDataProcessor
 ) {
 
+    // Interface for data received notifications
+    interface DataReceivedListener {
+        fun onDataReceived(data: ByteArray)
+    }
+
+    private val dataListeners = mutableListOf<DataReceivedListener>()
+
     data class ConnectionState(
         val isConnected: Boolean = false,
         val isConnecting: Boolean = false,
         val connectedDevice: Device? = null,
-        val receivedData: ByteArray? = null,
         val error: String? = null,
         val dataReceivedCount: Long = 0,
-        val lastDataTimestamp: Long = 0
+        val lastDataTimestamp: Long = 0,
+        val bytesReceived: Long = 0,
+        val dataRate: Long = 0 // Bytes per second
     )
 
     private val _connectionState = MutableStateFlow(ConnectionState())
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    // Expose GNSS position from processor
+    // Expose GNSS data from processor
     val currentPosition = gnssDataProcessor.currentPosition
+    val satellites = gnssDataProcessor.satellites
+    val gnssStatistics = gnssDataProcessor.statistics
+    val dataRate = gnssDataProcessor.dataRate
 
     private var currentService: ConnectionService? = null
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
 
+    // Coroutine scopes
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // For data rate calculation
+    private val bytesReceivedAtomic = AtomicLong(0)
+    private var dataRateCalculationJob: Job? = null
 
     private val connectionListener = object : ConnectionService.ConnectionListener {
         override fun onDataReceived(data: ByteArray) {
-            Timber.d("Data received: ${data.size} bytes")
+            // Process data on IO thread to avoid blocking UI
+            ioScope.launch {
+                try {
+                    val dataSize = data.size
+                    Timber.d("Data received: $dataSize bytes")
 
-            val currentCount = _connectionState.value.dataReceivedCount
+                    // Update counters atomically
+                    bytesReceivedAtomic.addAndGet(dataSize.toLong())
 
-            _connectionState.value = _connectionState.value.copy(
-                receivedData = data,
-                dataReceivedCount = currentCount + 1,
-                lastDataTimestamp = System.currentTimeMillis()
-            )
+                    // Process GNSS data on IO thread
+                    gnssDataProcessor.processData(data)
 
-            // Process GNSS data
-            try {
-                gnssDataProcessor.processData(data)
-            } catch (e: Exception) {
-                Timber.e(e, "Error processing GNSS data")
+                    // Notify data listeners
+                    synchronized(dataListeners) {
+                        dataListeners.forEach { listener ->
+                            try {
+                                listener.onDataReceived(data)
+                            } catch (e: Exception) {
+                                Timber.e(e, "Error in data listener")
+                            }
+                        }
+                    }
+
+                    // Update UI on main thread only with metadata
+                    withContext(Dispatchers.Main) {
+                        val currentState = _connectionState.value
+                        _connectionState.value = currentState.copy(
+                            dataReceivedCount = currentState.dataReceivedCount + 1,
+                            lastDataTimestamp = System.currentTimeMillis(),
+                            bytesReceived = currentState.bytesReceived + dataSize
+                        )
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Error processing GNSS data")
+                    withContext(Dispatchers.Main) {
+                        _connectionState.value = _connectionState.value.copy(
+                            error = "Processing error: ${e.message}"
+                        )
+                    }
+                }
             }
         }
 
@@ -71,12 +111,18 @@ class ConnectionManager @Inject constructor(
                 isConnecting = false,
                 error = null,
                 dataReceivedCount = 0,
+                bytesReceived = 0,
                 lastDataTimestamp = System.currentTimeMillis()
             )
+
+            // Start data rate calculation
+            startDataRateCalculation()
         }
 
         override fun onDisconnected() {
             Timber.d("Device disconnected")
+            stopDataRateCalculation()
+
             _connectionState.value = ConnectionState(
                 isConnected = false,
                 isConnecting = false,
@@ -88,6 +134,8 @@ class ConnectionManager @Inject constructor(
 
         override fun onError(error: String) {
             Timber.e("Connection error: $error")
+            stopDataRateCalculation()
+
             _connectionState.value = _connectionState.value.copy(
                 isConnected = false,
                 isConnecting = false,
@@ -95,6 +143,27 @@ class ConnectionManager @Inject constructor(
             )
             currentService = null
         }
+    }
+
+    private fun startDataRateCalculation() {
+        dataRateCalculationJob?.cancel()
+        bytesReceivedAtomic.set(0)
+
+        dataRateCalculationJob = scope.launch {
+            while (isActive) {
+                delay(1000) // Calculate every second
+
+                val bytesInLastSecond = bytesReceivedAtomic.getAndSet(0)
+                _connectionState.value = _connectionState.value.copy(
+                    dataRate = bytesInLastSecond
+                )
+            }
+        }
+    }
+
+    private fun stopDataRateCalculation() {
+        dataRateCalculationJob?.cancel()
+        dataRateCalculationJob = null
     }
 
     suspend fun connect(device: Device) {
@@ -126,7 +195,9 @@ class ConnectionManager @Inject constructor(
             }
 
             // Clear any previous GNSS data
-            gnssDataProcessor.clearBuffer()
+            withContext(Dispatchers.IO) {
+                gnssDataProcessor.reset()
+            }
 
             // Attempt connection
             currentService?.connect()
@@ -145,6 +216,7 @@ class ConnectionManager @Inject constructor(
         Timber.d("Disconnecting current device")
 
         try {
+            stopDataRateCalculation()
             currentService?.disconnect()
         } catch (e: Exception) {
             Timber.e(e, "Error during disconnect")
@@ -160,11 +232,18 @@ class ConnectionManager @Inject constructor(
             return
         }
 
-        try {
-            currentService?.sendData(data)
-            Timber.d("Sent ${data.size} bytes")
-        } catch (e: Exception) {
-            Timber.e(e, "Error sending data")
+        ioScope.launch {
+            try {
+                currentService?.sendData(data)
+                Timber.d("Sent ${data.size} bytes")
+            } catch (e: Exception) {
+                Timber.e(e, "Error sending data")
+                withContext(Dispatchers.Main) {
+                    _connectionState.value = _connectionState.value.copy(
+                        error = "Send error: ${e.message}"
+                    )
+                }
+            }
         }
     }
 
@@ -188,28 +267,18 @@ class ConnectionManager @Inject constructor(
     }
 
     fun getDataRate(): String {
-        val state = _connectionState.value
-        if (!state.isConnected) return "0 B/s"
-
-        val timeDiff = System.currentTimeMillis() - state.lastDataTimestamp
-        if (timeDiff > 5000) return "0 B/s" // No data for 5 seconds
-
-        // Simple estimation based on last received data
-        val bytesPerSecond = if (state.receivedData != null && timeDiff > 0) {
-            (state.receivedData.size * 1000 / timeDiff).toInt()
-        } else {
-            0
-        }
+        val bytesPerSecond = _connectionState.value.dataRate
 
         return when {
+            bytesPerSecond == 0L -> "0 B/s"
             bytesPerSecond < 1024 -> "$bytesPerSecond B/s"
             bytesPerSecond < 1024 * 1024 -> "${bytesPerSecond / 1024} KB/s"
-            else -> "${bytesPerSecond / (1024 * 1024)} MB/s"
+            else -> String.format("%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
         }
     }
 
-    fun getRawDataBuffer(): ByteArray {
-        return gnssDataProcessor.rawDataBuffer.toByteArray()
+    fun getRawDataBuffer(maxSize: Int = 10240): ByteArray {
+        return gnssDataProcessor.rawDataBuffer.takeLast(maxSize).toByteArray()
     }
 
     fun getBufferSize(): Int {
@@ -217,45 +286,24 @@ class ConnectionManager @Inject constructor(
     }
 
     fun clearBuffer() {
-        gnssDataProcessor.clearBuffer()
-    }
-
-    // Configuration commands for GNSS receivers
-    fun sendUbxCommand(messageClass: Int, messageId: Int, payload: ByteArray = byteArrayOf()) {
-        val message = buildUbxMessage(messageClass, messageId, payload)
-        sendData(message)
-    }
-
-    private fun buildUbxMessage(msgClass: Int, msgId: Int, payload: ByteArray): ByteArray {
-        val message = mutableListOf<Byte>()
-
-        // Sync chars
-        message.add(0xB5.toByte())
-        message.add(0x62.toByte())
-
-        // Class and ID
-        message.add(msgClass.toByte())
-        message.add(msgId.toByte())
-
-        // Length (little endian)
-        message.add((payload.size and 0xFF).toByte())
-        message.add((payload.size shr 8).toByte())
-
-        // Payload
-        message.addAll(payload.toList())
-
-        // Calculate checksum
-        var ckA = 0
-        var ckB = 0
-        for (i in 2 until message.size) {
-            ckA = (ckA + message[i].toInt()) and 0xFF
-            ckB = (ckB + ckA) and 0xFF
+        ioScope.launch {
+            gnssDataProcessor.clearBuffer()
         }
+    }
 
-        message.add(ckA.toByte())
-        message.add(ckB.toByte())
+    // Methods for managing data listeners
+    fun addDataListener(listener: DataReceivedListener) {
+        synchronized(dataListeners) {
+            dataListeners.add(listener)
+            Timber.d("Data listener added. Total listeners: ${dataListeners.size}")
+        }
+    }
 
-        return message.toByteArray()
+    fun removeDataListener(listener: DataReceivedListener) {
+        synchronized(dataListeners) {
+            dataListeners.remove(listener)
+            Timber.d("Data listener removed. Total listeners: ${dataListeners.size}")
+        }
     }
 
     // Cleanup
@@ -264,5 +312,8 @@ class ConnectionManager @Inject constructor(
         scope.launch {
             disconnect()
         }
+        // Cancel scopes after disconnect
+        scope.cancel()
+        ioScope.cancel()
     }
 }

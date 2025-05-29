@@ -8,9 +8,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.geosit.gnss.data.gnss.FixType
-import com.geosit.gnss.data.model.displayName  // <-- Aggiungi questo import
+import com.geosit.gnss.data.model.displayName
 import com.geosit.gnss.ui.viewmodel.DashboardViewModel
 import java.util.Locale
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FiberManualRecord
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -19,6 +21,9 @@ fun DashboardScreen(
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     val gnssPosition by viewModel.gnssPosition.collectAsState()
+    val satellites by viewModel.satellites.collectAsState()
+    val gnssStatistics by viewModel.gnssStatistics.collectAsState()
+    val recordingState by viewModel.recordingState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -73,6 +78,16 @@ fun DashboardScreen(
                         )
                     }
                 }
+
+                // Data stats when connected
+                if (connectionState.isConnected) {
+                    Text(
+                        "Messages: ${gnssStatistics.totalMessages} (${gnssStatistics.lastMessageType})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
 
@@ -90,10 +105,11 @@ fun DashboardScreen(
                     style = MaterialTheme.typography.titleLarge
                 )
 
-                if (gnssPosition.fixType != FixType.NO_FIX) {
+                if (connectionState.isConnected) {
                     Column(
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
+                        // Show coordinates even if 0,0 (waiting for fix)
                         Text(
                             String.format(
                                 Locale.US,
@@ -126,11 +142,24 @@ fun DashboardScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                "Fix: ${gnssPosition.fixType.name.replace('_', ' ')}",
-                                style = MaterialTheme.typography.bodyMedium
+                                when (gnssPosition.fixType) {
+                                    FixType.NO_FIX -> "No Fix"
+                                    FixType.FIX_2D -> "2D Fix"
+                                    FixType.FIX_3D -> "3D Fix"
+                                    FixType.DGPS -> "DGPS"
+                                    FixType.RTK_FIXED -> "RTK Fixed"
+                                    FixType.RTK_FLOAT -> "RTK Float"
+                                    else -> "Single"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = when (gnssPosition.fixType) {
+                                    FixType.NO_FIX -> MaterialTheme.colorScheme.error
+                                    FixType.FIX_2D -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
                             )
                             Text(
-                                "Sats: ${gnssPosition.satellitesUsed}",
+                                "Sats: ${gnssPosition.satellitesUsed}/${satellites.size}",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
@@ -138,12 +167,52 @@ fun DashboardScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
+
+                        // Show waiting message if no fix
+                        if (gnssPosition.fixType == FixType.NO_FIX) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "Waiting for satellite fix...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Additional info if available
+                        if (gnssPosition.accuracy > 0) {
+                            Text(
+                                String.format("Accuracy: %.1f m", gnssPosition.accuracy),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        if (gnssPosition.speed > 0.1) {
+                            Text(
+                                String.format("Speed: %.1f m/s (%.1f km/h)",
+                                    gnssPosition.speed,
+                                    gnssPosition.speed * 3.6
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 } else {
                     Text(
-                        "No position fix",
+                        "Connect to a GNSS device to see position",
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier.padding(top = 8.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -153,20 +222,120 @@ fun DashboardScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(vertical = 8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (recordingState.isRecording) {
+                    MaterialTheme.colorScheme.errorContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                }
+            )
         ) {
             Column(
                 modifier = Modifier.padding(16.dp)
             ) {
-                Text(
-                    "Recording Status",
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text(
-                    "Not Recording",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Recording Status",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    if (recordingState.isRecording) {
+                        Icon(
+                            Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                if (recordingState.isRecording) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    recordingState.currentSession?.let { session ->
+                        Text(
+                            "Mode: ${session.mode.name.replace('_', ' ')}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        if (session.pointName.isNotEmpty()) {
+                            Text(
+                                "Name: ${session.pointName}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        Text(
+                            "File: ${session.fileName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                        )
+                    }
+
+                    Divider(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.2f)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                "Duration",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                viewModel.getRecordingDuration(),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "Size",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                viewModel.getRecordingSize(),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "Points",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                "${recordingState.dataReceivedCount}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        "Not Recording",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(top = 8.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Go to Record tab to start",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
     }
