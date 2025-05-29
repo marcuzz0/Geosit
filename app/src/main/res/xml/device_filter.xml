@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Generic USB serial devices -->
+    <usb-device class="2" subclass="2" protocol="1" />
+
+    <!-- FTDI devices -->
+    <usb-device vendor-id="1027" />
+
+    <!-- Prolific Technology Inc. -->
+    <usb-device vendor-id="1659" />
+
+    <!-- Silicon Labs CP210x -->
+    <usb-device vendor-id="4292" />
+
+    <!-- CH340/CH341 chips -->
+    <usb-device vendor-id="6790" />
+
+    <!-- u-blox GNSS receivers -->
+    <usb-device vendor-id="5171" />
+
+    <!-- Generic CDC ACM devices -->
+    <usb-device class="2" subclass="2" />
+
+    <!-- Specific GNSS receivers if known -->
+    <!-- Example: u-blox NEO series -->
+    <usb-device vendor-id="5171" product-id="8" />
+
+    <!-- Allow any USB device for debugging (remove in production) -->
+    <usb-device />
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Backup rules for Android 11 and below (API 30-)
+   See https://developer.android.com/guide/topics/data/autobackup
+-->
+<full-backup-content>
+    <!-- Include shared preferences -->
+    <include domain="sharedpref" path="."/>
+
+    <!-- Include databases -->
+    <include domain="database" path="."/>
+
+    <!-- Include files -->
+    <include domain="file" path="."/>
+
+    <!-- Exclude device-specific data -->
+    <exclude domain="sharedpref" path="device.xml"/>
+    <exclude domain="sharedpref" path="bluetooth_devices.xml"/>
+    <exclude domain="sharedpref" path="usb_devices.xml"/>
+
+    <!-- Exclude cache and temporary files -->
+    <exclude domain="cache" path="."/>
+    <exclude domain="file" path="cache/"/>
+    <exclude domain="file" path="temp/"/>
+</full-backup-content>

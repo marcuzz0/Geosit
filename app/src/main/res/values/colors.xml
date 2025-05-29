@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Colori base SEMPRE necessari -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Grigi per stato disabled -->
+    <color name="gray">#FF808080</color>
+    <color name="gray_disabled">#FF444444</color>
+    <color name="gray_light">#FFCCCCCC</color>
+
+    <!-- Verde Standard -->
+    <color name="my_green">#FF4FA95A</color>
+    <color name="my_green_dark">#FF388E3C</color>
+    <color name="holo_green_dark">@android:color/holo_green_dark</color>
+
+    <!-- NUOVO: Rosso Tenue/Corallo (per CLOSE e NO) -->
+    <color name="red_soft">#FFFF6B6B</color>           <!-- Rosso tenue principale -->
+    <color name="red_soft_dark">#FFFF5252</color>       <!-- Rosso tenue scuro (pressed) -->
+
+    <!-- Rosso Vecchio (per compatibilità se serve) -->
+    <color name="red">#FFF44336</color>                 <!-- Rosso forte originale -->
+    <color name="stop_red">#FFFF6B6B</color>           <!-- AGGIORNATO: usa il rosso tenue -->
+    <color name="stop_red_dark">#FFFF5252</color>       <!-- AGGIORNATO: usa il rosso tenue scuro -->
+
+    <!-- Colori per forcing tema -->
+    <color name="dialog_background">#FF000000</color>
+    <color name="list_item_background">#FF000000</color>
+    <color name="text_primary_dark">#FFFFFFFF</color>
+    <color name="text_secondary_dark">#FFCCCCCC</color>
+
+</resources>

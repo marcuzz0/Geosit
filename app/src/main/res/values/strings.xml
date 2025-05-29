@@ -1,0 +1,38 @@
+<resources>
+    <string name="app_name">GeoSit</string>
+    <string name="app_description">Professional GNSS Data Logger</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_connection">Connect</string>
+    <string name="nav_recording">Record</string>
+    <string name="nav_data">Data</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Connection -->
+    <string name="connection_status_connected">Connected</string>
+    <string name="connection_status_connecting">Connecting…</string>
+    <string name="connection_status_disconnected">Disconnected</string>
+    <string name="connection_tap_to_connect">Tap to connect to a GNSS device</string>
+
+    <!-- Recording -->
+    <string name="recording_mode_static">Static</string>
+    <string name="recording_mode_kinematic">Kinematic</string>
+    <string name="recording_mode_stop_go">Stop &amp; Go</string>
+    <string name="recording_start">Start Recording</string>
+    <string name="recording_stop">Stop</string>
+    <string name="recording_pause">Pause</string>
+    <string name="recording_resume">Resume</string>
+
+    <!-- Position -->
+    <string name="position_latitude">Latitude</string>
+    <string name="position_longitude">Longitude</string>
+    <string name="position_altitude">Altitude</string>
+    <string name="position_accuracy">Accuracy</string>
+    <string name="position_satellites">Satellites</string>
+
+    <!-- Permissions -->
+    <string name="permission_location_required">Location permission is required for GNSS functionality</string>
+    <string name="permission_bluetooth_required">Bluetooth permission is required to connect to GNSS devices</string>
+    <string name="permission_notification_required">Notification permission is required for background recording</string>
+</resources>

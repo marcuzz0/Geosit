@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme for GeoSit -->
+    <style name="Theme.GeoSit" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/my_green</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/my_green_dark</item>
+        <item name="colorOnPrimaryContainer">@color/white</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/my_green</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSecondaryContainer">@color/my_green_dark</item>
+        <item name="colorOnSecondaryContainer">@color/white</item>
+
+        <!-- Background colors -->
+        <item name="android:colorBackground">@color/black</item>
+        <item name="colorOnBackground">@color/white</item>
+        <item name="colorSurface">@color/black</item>
+        <item name="colorOnSurface">@color/white</item>
+
+        <!-- Error colors -->
+        <item name="colorError">@color/red</item>
+        <item name="colorOnError">@color/white</item>
+        <item name="colorErrorContainer">@color/red_soft</item>
+        <item name="colorOnErrorContainer">@color/white</item>
+
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:navigationBarColor">@color/black</item>
+
+        <!-- Window background -->
+        <item name="android:windowBackground">@color/black</item>
+    </style>
+
+    <!-- Theme for Compose activities -->
+    <style name="Theme.GeoSit.NoActionBar" parent="Theme.GeoSit">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- Compatibility themes for imported rawX components -->
+    <style name="Theme.MyApp" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@color/black</item>
+        <item name="colorPrimary">@color/my_green</item>
+        <item name="colorPrimaryDark">@color/my_green_dark</item>
+        <item name="colorAccent">@color/my_green</item>
+        <item name="android:textColorPrimary">@color/white</item>
+        <item name="android:textColorSecondary">@color/gray</item>
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:dialogTheme">@style/Theme.MyApp.Dialog</item>
+        <item name="alertDialogTheme">@style/Theme.MyApp.Dialog</item>
+    </style>
+
+    <!-- Dialog theme for compatibility -->
+    <style name="Theme.MyApp.Dialog" parent="Theme.MaterialComponents.Dialog">
+        <item name="android:windowBackground">@color/black</item>
+        <item name="android:colorBackground">@color/black</item>
+        <item name="colorSurface">@color/black</item>
+        <item name="colorOnSurface">@color/white</item>
+        <item name="android:textColorPrimary">@color/white</item>
+        <item name="android:textColorSecondary">@color/gray</item>
+        <item name="colorPrimary">@color/my_green</item>
+        <item name="colorOnPrimary">@color/white</item>
+    </style>
+</resources>
