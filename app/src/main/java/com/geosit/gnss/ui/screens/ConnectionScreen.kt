@@ -1,7 +1,5 @@
 package com.geosit.gnss.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -19,16 +16,13 @@ import com.geosit.gnss.data.model.Device
 import com.geosit.gnss.data.model.connectionInfo
 import com.geosit.gnss.data.model.displayName
 import com.geosit.gnss.ui.viewmodel.ConnectionViewModel
-import com.geosit.gnss.ui.viewmodel.RecordingViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectionScreen(
-    viewModel: ConnectionViewModel = hiltViewModel(),
-    recordingViewModel: RecordingViewModel = hiltViewModel()
+    viewModel: ConnectionViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val recordingState by recordingViewModel.recordingState.collectAsState()
+    val state by viewModel.state.collectAsState()
     var showAddTcpDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -47,7 +41,7 @@ fun ConnectionScreen(
             actions = {
                 IconButton(
                     onClick = { viewModel.scanForDevices() },
-                    enabled = !uiState.isConnecting
+                    enabled = !state.isConnecting
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                 }
@@ -57,234 +51,48 @@ fun ConnectionScreen(
             )
         )
 
-        // Connection Status Card - Always visible
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = when {
-                    uiState.isConnected -> MaterialTheme.colorScheme.primaryContainer
-                    uiState.isConnecting -> MaterialTheme.colorScheme.tertiaryContainer
-                    else -> MaterialTheme.colorScheme.surfaceVariant
-                }
-            )
-        ) {
-            val contentAlpha by animateFloatAsState(
-                targetValue = if (uiState.isConnecting) 0.6f else 1f,
-                label = "content_alpha"
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-                    .alpha(contentAlpha)
-            ) {
-                when {
-                    uiState.isConnecting -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Connecting",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                                uiState.connectedDevice?.let { device ->
-                                    Text(
-                                        device.displayName(),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(32.dp),
-                                strokeWidth = 3.dp
-                            )
-                        }
-                    }
-                    uiState.isConnected -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .padding(end = 8.dp)
-                                    )
-                                    Text(
-                                        "Connected",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-
-                                uiState.connectedDevice?.let { device ->
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    // Device name
-                                    Text(
-                                        device.displayName(),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    // Connection type with icon
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            when (device) {
-                                                is Device.Bluetooth -> Icons.Default.Bluetooth
-                                                is Device.Usb -> Icons.Default.Usb
-                                                is Device.Tcp -> Icons.Default.Wifi
-                                            },
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            when (device) {
-                                                is Device.Bluetooth -> "Bluetooth • ${device.address}"
-                                                is Device.Usb -> "USB Serial"
-                                                is Device.Tcp -> "TCP/IP • ${device.host}:${device.port}"
-                                            },
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                        )
-                                    }
-
-                                    // Data rate if available
-                                    if (uiState.dataRate != "0 B/s") {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Speed,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp),
-                                                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                uiState.dataRate,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            Button(
-                                onClick = { viewModel.disconnect() },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                ),
-                                modifier = Modifier.padding(start = 16.dp)
-                            ) {
-                                Text("Disconnect")
-                            }
-                        }
-                    }
-                    else -> {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                Icons.Default.BluetoothDisabled,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "Not Connected",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Select a device below to connect",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Recording Status Card - Show when recording
-        AnimatedVisibility(visible = recordingState.isRecording && uiState.isConnected) {
+        // Connection Status Card
+        if (state.isConnected && state.connectedDevice != null) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Recording Active",
+                            "Connected",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
-                        Icon(
-                            Icons.Default.FiberManualRecord,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
+                        Text(
+                            state.connectedDevice!!.displayName(),
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            state.connectedDevice!!.connectionInfo(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
                     }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Button(
+                        onClick = { viewModel.disconnect() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
                     ) {
-                        Text(
-                            "Duration: ${recordingViewModel.getRecordingDuration()}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Text(
-                            "Size: ${recordingViewModel.getRecordingSize()}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        Text("Disconnect")
                     }
                 }
             }
@@ -297,7 +105,7 @@ fun ConnectionScreen(
             modifier = Modifier.padding(vertical = 8.dp)
         )
 
-        if (uiState.availableDevices.isEmpty() && !uiState.isConnecting) {
+        if (state.availableDevices.isEmpty() && !state.isConnecting) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -316,16 +124,13 @@ fun ConnectionScreen(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(uiState.availableDevices) { device ->
-                val isThisDeviceConnecting = uiState.isConnecting && uiState.connectedDevice == device
-                val isThisDeviceConnected = uiState.isConnected && uiState.connectedDevice == device
-
+            items(state.availableDevices) { device ->
                 DeviceCard(
                     device = device,
-                    isConnecting = isThisDeviceConnecting,
-                    isConnected = isThisDeviceConnected,
+                    isConnecting = state.isConnecting && !state.isConnected,
+                    isConnected = state.connectedDevice == device,
                     onConnect = { viewModel.connectToDevice(device) },
-                    onRemove = if (device is Device.Tcp && !isThisDeviceConnected) {
+                    onRemove = if (device is Device.Tcp) {
                         { viewModel.removeTcpDevice(device) }
                     } else null
                 )
@@ -356,7 +161,7 @@ fun ConnectionScreen(
         }
 
         // Error display
-        uiState.error?.let { error ->
+        state.error?.let { error ->
             Snackbar(
                 modifier = Modifier.padding(8.dp),
                 action = {
@@ -393,14 +198,13 @@ fun DeviceCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        onClick = { if (!isConnecting && !isConnected) onConnect() },
-        colors = CardDefaults.cardColors(
-            containerColor = when {
-                isConnected -> MaterialTheme.colorScheme.primaryContainer
-                isConnecting -> MaterialTheme.colorScheme.tertiaryContainer
-                else -> MaterialTheme.colorScheme.surface
-            }
-        )
+        colors = if (isConnected) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        } else {
+            CardDefaults.cardColors()
+        }
     ) {
         Row(
             modifier = Modifier
@@ -423,10 +227,10 @@ fun DeviceCard(
                         modifier = Modifier
                             .size(20.dp)
                             .padding(end = 4.dp),
-                        tint = when {
-                            isConnected -> MaterialTheme.colorScheme.onPrimaryContainer
-                            isConnecting -> MaterialTheme.colorScheme.onTertiaryContainer
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isConnected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
                     Text(
@@ -434,20 +238,20 @@ fun DeviceCard(
                         style = MaterialTheme.typography.bodyLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = when {
-                            isConnected -> MaterialTheme.colorScheme.onPrimaryContainer
-                            isConnecting -> MaterialTheme.colorScheme.onTertiaryContainer
-                            else -> MaterialTheme.colorScheme.onSurface
+                        color = if (isConnected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
                         }
                     )
                 }
                 Text(
                     device.connectionInfo(),
                     style = MaterialTheme.typography.bodySmall,
-                    color = when {
-                        isConnected -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        isConnecting -> MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (isConnected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     }
                 )
             }
@@ -456,35 +260,30 @@ fun DeviceCard(
                 if (onRemove != null) {
                     IconButton(
                         onClick = onRemove,
-                        enabled = !isConnecting && !isConnected
+                        enabled = !isConnected
                     ) {
                         Icon(
                             Icons.Default.Delete,
                             contentDescription = "Remove",
-                            tint = if (!isConnecting && !isConnected) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                            }
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 }
 
-                when {
-                    isConnecting -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    isConnected -> {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = "Connected",
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                Button(
+                    onClick = onConnect,
+                    enabled = !isConnecting && !isConnected
+                ) {
+                    when {
+                        isConnected -> Text("Connected")
+                        isConnecting -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        else -> Text("Connect")
                     }
                 }
             }

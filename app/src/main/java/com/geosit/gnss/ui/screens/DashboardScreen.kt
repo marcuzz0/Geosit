@@ -1,12 +1,11 @@
 package com.geosit.gnss.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.geosit.gnss.data.gnss.FixType
@@ -21,9 +20,6 @@ fun DashboardScreen(
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
     val gnssPosition by viewModel.gnssPosition.collectAsState()
-    val satellites by viewModel.satellites.collectAsState()
-    val gnssStatistics by viewModel.gnssStatistics.collectAsState()
-    val recordingState by viewModel.recordingState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -78,16 +74,6 @@ fun DashboardScreen(
                         )
                     }
                 }
-
-                // Data stats when connected
-                if (connectionState.isConnected) {
-                    Text(
-                        "Messages: ${gnssStatistics.totalMessages} (${gnssStatistics.lastMessageType})",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
             }
         }
 
@@ -105,115 +91,139 @@ fun DashboardScreen(
                     style = MaterialTheme.typography.titleLarge
                 )
 
-                if (connectionState.isConnected) {
-                    Column(
-                        modifier = Modifier.padding(top = 8.dp)
+                Column(
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    // Show coordinates even if no fix
+                    Text(
+                        String.format(
+                            Locale.US,
+                            "Latitude: %.8f°",
+                            gnssPosition.latitude
+                        ),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (gnssPosition.fixType != FixType.NO_FIX) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Text(
+                        String.format(
+                            Locale.US,
+                            "Longitude: %.8f°",
+                            gnssPosition.longitude
+                        ),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (gnssPosition.fixType != FixType.NO_FIX) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Text(
+                        String.format(
+                            Locale.US,
+                            "Altitude: %.2f m",
+                            gnssPosition.altitude
+                        ),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (gnssPosition.fixType != FixType.NO_FIX) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    // Fix info row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Show coordinates even if 0,0 (waiting for fix)
-                        Text(
-                            String.format(
-                                Locale.US,
-                                "Latitude: %.8f°",
-                                gnssPosition.latitude
-                            ),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            String.format(
-                                Locale.US,
-                                "Longitude: %.8f°",
-                                gnssPosition.longitude
-                            ),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            String.format(
-                                Locale.US,
-                                "Altitude: %.2f m",
-                                gnssPosition.altitude
-                            ),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        // Fix status with color
+                        Row {
                             Text(
-                                when (gnssPosition.fixType) {
-                                    FixType.NO_FIX -> "No Fix"
-                                    FixType.FIX_2D -> "2D Fix"
-                                    FixType.FIX_3D -> "3D Fix"
-                                    FixType.DGPS -> "DGPS"
-                                    FixType.RTK_FIXED -> "RTK Fixed"
-                                    FixType.RTK_FLOAT -> "RTK Float"
-                                    else -> "Single"
-                                },
+                                "Fix: ",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                gnssPosition.fixStatus,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = when (gnssPosition.fixType) {
                                     FixType.NO_FIX -> MaterialTheme.colorScheme.error
                                     FixType.FIX_2D -> MaterialTheme.colorScheme.tertiary
-                                    else -> MaterialTheme.colorScheme.primary
+                                    FixType.FIX_3D -> MaterialTheme.colorScheme.primary
+                                    FixType.DGPS -> MaterialTheme.colorScheme.primary
+                                    FixType.RTK_FIXED -> Color(0xFF4CAF50) // Green
+                                    FixType.RTK_FLOAT -> Color(0xFFFFA726) // Orange
                                 }
                             )
-                            Text(
-                                "Sats: ${gnssPosition.satellitesUsed}/${satellites.size}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                String.format("HDOP: %.1f", gnssPosition.hdop),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
                         }
 
-                        // Show waiting message if no fix
-                        if (gnssPosition.fixType == FixType.NO_FIX) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    "Waiting for satellite fix...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        Text(
+                            "Sats: ${gnssPosition.satellitesUsed}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+
+                        Text(
+                            String.format("HDOP: %.1f", gnssPosition.hdop),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = when {
+                                gnssPosition.hdop <= 1.0 -> Color(0xFF4CAF50) // Excellent
+                                gnssPosition.hdop <= 2.0 -> MaterialTheme.colorScheme.primary // Good
+                                gnssPosition.hdop <= 5.0 -> Color(0xFFFFA726) // Moderate
+                                else -> MaterialTheme.colorScheme.error // Poor
                             }
-                        }
-
-                        // Additional info if available
-                        if (gnssPosition.accuracy > 0) {
-                            Text(
-                                String.format("Accuracy: %.1f m", gnssPosition.accuracy),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        if (gnssPosition.speed > 0.1) {
-                            Text(
-                                String.format("Speed: %.1f m/s (%.1f km/h)",
-                                    gnssPosition.speed,
-                                    gnssPosition.speed * 3.6
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        )
                     }
-                } else {
-                    Text(
-                        "Connect to a GNSS device to see position",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(top = 8.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                    // Additional info if available
+                    if (gnssPosition.satellitesInView > 0) {
+                        Text(
+                            "Satellites in view: ${gnssPosition.satellitesInView}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+
+                    // Accuracy if available
+                    if (gnssPosition.horizontalAccuracy > 0) {
+                        Text(
+                            String.format(
+                                Locale.US,
+                                "Estimated accuracy: ±%.1f m",
+                                gnssPosition.horizontalAccuracy
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Speed if moving
+                    if (gnssPosition.speedMs > 0.5) { // Show speed if > 0.5 m/s
+                        Text(
+                            String.format(
+                                Locale.US,
+                                "Speed: %.1f km/h (%.1f m/s)",
+                                gnssPosition.speedMs * 3.6,
+                                gnssPosition.speedMs
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // UTC time if available
+                    if (gnssPosition.utcTime.isNotEmpty()) {
+                        Text(
+                            "GPS Time: ${gnssPosition.utcTime}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -222,120 +232,20 @@ fun DashboardScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (recordingState.isRecording) {
-                    MaterialTheme.colorScheme.errorContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                }
-            )
+                .padding(vertical = 8.dp)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Recording Status",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                    if (recordingState.isRecording) {
-                        Icon(
-                            Icons.Default.FiberManualRecord,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-
-                if (recordingState.isRecording) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    recordingState.currentSession?.let { session ->
-                        Text(
-                            "Mode: ${session.mode.name.replace('_', ' ')}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        if (session.pointName.isNotEmpty()) {
-                            Text(
-                                "Name: ${session.pointName}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                        Text(
-                            "File: ${session.fileName}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                        )
-                    }
-
-                    Divider(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.2f)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                "Duration",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
-                            )
-                            Text(
-                                viewModel.getRecordingDuration(),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                "Size",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
-                            )
-                            Text(
-                                viewModel.getRecordingSize(),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                "Points",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f)
-                            )
-                            Text(
-                                "${recordingState.dataReceivedCount}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
-                    }
-                } else {
-                    Text(
-                        "Not Recording",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(top = 8.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Go to Record tab to start",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 4.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
+                Text(
+                    "Recording Status",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    "Not Recording",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }

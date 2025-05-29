@@ -1,7 +1,9 @@
 package com.geosit.gnss.ui.viewmodel
 
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.content.Context
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -23,17 +25,16 @@ class ConnectionViewModel @Inject constructor(
     private val connectionManager: ConnectionManager
 ) : ViewModel() {
 
-    data class ConnectionUiState(
+    data class ConnectionState(
         val isConnected: Boolean = false,
         val isConnecting: Boolean = false,
         val connectedDevice: Device? = null,
         val availableDevices: List<Device> = emptyList(),
-        val dataRate: String = "0 B/s",
         val error: String? = null
     )
 
-    private val _uiState = MutableStateFlow(ConnectionUiState())
-    val uiState: StateFlow<ConnectionUiState> = _uiState.asStateFlow()
+    private val _state = MutableStateFlow(ConnectionState())
+    val state: StateFlow<ConnectionState> = _state.asStateFlow()
 
     private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
     private val usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -42,11 +43,10 @@ class ConnectionViewModel @Inject constructor(
         // Observe connection state changes
         viewModelScope.launch {
             connectionManager.connectionState.collect { connState ->
-                _uiState.value = _uiState.value.copy(
+                _state.value = _state.value.copy(
                     isConnected = connState.isConnected,
                     connectedDevice = connState.connectedDevice,
-                    isConnecting = false,
-                    dataRate = connectionManager.getDataRate()
+                    isConnecting = false
                 )
             }
         }
@@ -102,7 +102,7 @@ class ConnectionViewModel @Inject constructor(
                     )
                 )
 
-                _uiState.value = _uiState.value.copy(
+                _state.value = _state.value.copy(
                     availableDevices = devices,
                     error = null
                 )
@@ -111,7 +111,7 @@ class ConnectionViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Timber.e(e, "Error scanning devices")
-                _uiState.value = _uiState.value.copy(
+                _state.value = _state.value.copy(
                     error = "Error scanning devices: ${e.message}"
                 )
             }
@@ -119,12 +119,11 @@ class ConnectionViewModel @Inject constructor(
     }
 
     fun connectToDevice(device: Device) {
-        if (_uiState.value.isConnecting) return
+        if (_state.value.isConnecting) return
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
+            _state.value = _state.value.copy(
                 isConnecting = true,
-                connectedDevice = device,
                 error = null
             )
 
@@ -133,7 +132,7 @@ class ConnectionViewModel @Inject constructor(
                 // Connection state will be updated via the connectionManager flow
             } catch (e: Exception) {
                 Timber.e(e, "Error connecting to device")
-                _uiState.value = _uiState.value.copy(
+                _state.value = _state.value.copy(
                     isConnecting = false,
                     error = "Connection failed: ${e.message}"
                 )
@@ -145,13 +144,13 @@ class ConnectionViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 connectionManager.disconnect()
-                _uiState.value = _uiState.value.copy(
+                _state.value = _state.value.copy(
                     isConnected = false,
                     connectedDevice = null
                 )
             } catch (e: Exception) {
                 Timber.e(e, "Error disconnecting")
-                _uiState.value = _uiState.value.copy(
+                _state.value = _state.value.copy(
                     error = "Disconnect failed: ${e.message}"
                 )
             }
@@ -160,20 +159,20 @@ class ConnectionViewModel @Inject constructor(
 
     fun addTcpDevice(host: String, port: Int, name: String) {
         val tcpDevice = Device.Tcp(host, port, name)
-        val updatedDevices = _uiState.value.availableDevices + tcpDevice
-        _uiState.value = _uiState.value.copy(availableDevices = updatedDevices)
+        val updatedDevices = _state.value.availableDevices + tcpDevice
+        _state.value = _state.value.copy(availableDevices = updatedDevices)
 
         // TODO: Save to database/preferences
     }
 
     fun removeTcpDevice(device: Device.Tcp) {
-        val updatedDevices = _uiState.value.availableDevices.filter { it != device }
-        _uiState.value = _uiState.value.copy(availableDevices = updatedDevices)
+        val updatedDevices = _state.value.availableDevices.filter { it != device }
+        _state.value = _state.value.copy(availableDevices = updatedDevices)
 
         // TODO: Remove from database/preferences
     }
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+        _state.value = _state.value.copy(error = null)
     }
 }

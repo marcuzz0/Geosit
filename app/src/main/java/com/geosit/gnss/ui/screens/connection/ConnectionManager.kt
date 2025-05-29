@@ -36,11 +36,8 @@ class ConnectionManager @Inject constructor(
     private val _connectionState = MutableStateFlow(ConnectionState())
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    // Expose GNSS data from processor
+    // Expose GNSS position from processor
     val currentPosition = gnssDataProcessor.currentPosition
-    val satellites = gnssDataProcessor.satellites
-    val gnssStatistics = gnssDataProcessor.statistics
-    val dataRate = gnssDataProcessor.dataRate
 
     private var currentService: ConnectionService? = null
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -50,14 +47,6 @@ class ConnectionManager @Inject constructor(
     private val connectionListener = object : ConnectionService.ConnectionListener {
         override fun onDataReceived(data: ByteArray) {
             Timber.d("Data received: ${data.size} bytes")
-
-            // Log first 20 bytes in hex for debug
-            if (data.isNotEmpty()) {
-                val hexString = data.take(20).joinToString(" ") {
-                    String.format("%02X", it)
-                }
-                Timber.d("Data hex (first 20): $hexString")
-            }
 
             val currentCount = _connectionState.value.dataReceivedCount
 
@@ -95,9 +84,6 @@ class ConnectionManager @Inject constructor(
                 error = null
             )
             currentService = null
-
-            // Reset GNSS processor
-            gnssDataProcessor.reset()
         }
 
         override fun onError(error: String) {
@@ -140,7 +126,7 @@ class ConnectionManager @Inject constructor(
             }
 
             // Clear any previous GNSS data
-            gnssDataProcessor.reset()
+            gnssDataProcessor.clearBuffer()
 
             // Attempt connection
             currentService?.connect()
@@ -165,7 +151,6 @@ class ConnectionManager @Inject constructor(
         } finally {
             currentService = null
             _connectionState.value = ConnectionState()
-            gnssDataProcessor.reset()
         }
     }
 
@@ -203,12 +188,23 @@ class ConnectionManager @Inject constructor(
     }
 
     fun getDataRate(): String {
-        val bytesPerSecond = dataRate.value
+        val state = _connectionState.value
+        if (!state.isConnected) return "0 B/s"
+
+        val timeDiff = System.currentTimeMillis() - state.lastDataTimestamp
+        if (timeDiff > 5000) return "0 B/s" // No data for 5 seconds
+
+        // Simple estimation based on last received data
+        val bytesPerSecond = if (state.receivedData != null && timeDiff > 0) {
+            (state.receivedData.size * 1000 / timeDiff).toInt()
+        } else {
+            0
+        }
+
         return when {
-            bytesPerSecond == 0 -> "0 B/s"
             bytesPerSecond < 1024 -> "$bytesPerSecond B/s"
             bytesPerSecond < 1024 * 1024 -> "${bytesPerSecond / 1024} KB/s"
-            else -> String.format("%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0))
+            else -> "${bytesPerSecond / (1024 * 1024)} MB/s"
         }
     }
 
@@ -228,44 +224,6 @@ class ConnectionManager @Inject constructor(
     fun sendUbxCommand(messageClass: Int, messageId: Int, payload: ByteArray = byteArrayOf()) {
         val message = buildUbxMessage(messageClass, messageId, payload)
         sendData(message)
-    }
-
-    fun configureGnssReceiver() {
-        // For UBX devices
-        if (gnssDataProcessor.statistics.value.ubxMessages > 0) {
-            // Configure update rate to 1Hz
-            sendUbxCommand(0x06, 0x08, byteArrayOf(
-                0xE8.toByte(), 0x03, // Measurement rate (1000ms)
-                0x01, 0x00, // Navigation rate (1)
-                0x01, 0x00  // Time reference (GPS)
-            ))
-
-            // Enable NAV-PVT message
-            sendUbxCommand(0x06, 0x01, byteArrayOf(
-                0x01, // NAV class
-                0x07, // PVT message
-                0x01  // Enable on UART1
-            ))
-
-            // Enable NAV-SAT message
-            sendUbxCommand(0x06, 0x01, byteArrayOf(
-                0x01, // NAV class
-                0x35, // SAT message
-                0x01  // Enable on UART1
-            ))
-        } else {
-            // For NMEA devices, request GGA sentence
-            // Most NMEA devices respond to standard commands
-            val enableGGA = "\$PSRF103,00,00,01,01*25\r\n" // Enable GGA at 1Hz
-            val enableRMC = "\$PSRF103,04,00,01,01*21\r\n" // Enable RMC at 1Hz
-            val enableGSV = "\$PSRF103,03,00,05,01*26\r\n" // Enable GSV every 5 fixes
-
-            sendData(enableGGA.toByteArray())
-            sendData(enableRMC.toByteArray())
-            sendData(enableGSV.toByteArray())
-
-            Timber.d("Sent NMEA configuration commands")
-        }
     }
 
     private fun buildUbxMessage(msgClass: Int, msgId: Int, payload: ByteArray): ByteArray {
