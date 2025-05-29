@@ -16,10 +16,15 @@ data class GnssPosition(
     val fixType: FixType = FixType.NO_FIX,
     val satellitesUsed: Int = 0,
     val hdop: Double = 99.9,
+    val vdop: Double = 99.9,
+    val pdop: Double = 99.9,
     val accuracy: Double = 0.0,
     val speed: Double = 0.0,
-    val timestamp: Long = System.currentTimeMillis()
+    val heading: Double = 0.0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val utcTime: String = ""
 )
+
 enum class FixType {
     NO_FIX,
     FIX_2D,
