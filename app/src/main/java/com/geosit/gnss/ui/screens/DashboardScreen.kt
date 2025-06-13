@@ -1,25 +1,31 @@
 package com.geosit.gnss.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.geosit.gnss.data.gnss.FixType
 import com.geosit.gnss.data.model.displayName
 import com.geosit.gnss.ui.viewmodel.DashboardViewModel
+import com.geosit.gnss.ui.viewmodel.RecordingViewModel
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    viewModel: DashboardViewModel = hiltViewModel()
+    dashboardViewModel: DashboardViewModel = hiltViewModel(),
+    recordingViewModel: RecordingViewModel = hiltViewModel()
 ) {
-    val connectionState by viewModel.connectionState.collectAsState()
-    val gnssPosition by viewModel.gnssPosition.collectAsState()
+    val connectionState by dashboardViewModel.connectionState.collectAsState()
+    val gnssPosition by dashboardViewModel.gnssPosition.collectAsState()
+    val recordingState by recordingViewModel.recordingState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -149,7 +155,11 @@ fun DashboardScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                gnssPosition.fixStatus,
+                                if (connectionState.isConnected && gnssPosition.fixStatus == "Waiting for GPS...") {
+                                    "No Fix"
+                                } else {
+                                    gnssPosition.fixStatus
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = when (gnssPosition.fixType) {
                                     FixType.NO_FIX -> MaterialTheme.colorScheme.error
@@ -232,7 +242,14 @@ fun DashboardScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(vertical = 8.dp),
+            colors = if (recordingState.isRecording) {
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            } else {
+                CardDefaults.cardColors()
+            }
         ) {
             Column(
                 modifier = Modifier.padding(16.dp)
@@ -241,11 +258,62 @@ fun DashboardScreen(
                     "Recording Status",
                     style = MaterialTheme.typography.titleLarge
                 )
-                Text(
-                    "Not Recording",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+
+                if (recordingState.isRecording) {
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp).padding(end = 4.dp)
+                        )
+                        Text(
+                            "Recording",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Recording details
+                    recordingState.currentSession?.let { session ->
+                        Column(
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Text(
+                                "Mode: ${session.mode.name.replace('_', ' ')}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            if (session.pointName.isNotEmpty()) {
+                                Text(
+                                    "Name: ${session.pointName}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Text(
+                                "Duration: ${recordingViewModel.getRecordingDuration()}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                "Size: ${recordingViewModel.getRecordingSize()}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        "Not Recording",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
     }

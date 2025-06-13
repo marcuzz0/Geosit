@@ -1,6 +1,9 @@
 package com.geosit.gnss.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,6 +36,12 @@ fun DataScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showDeleteAllDialog by remember { mutableStateOf(false) }
+    var recordingToDelete by remember { mutableStateOf<RecordingFile?>(null) }
+    var selectedRecording by remember { mutableStateOf<RecordingFile?>(null) }
+    var showOptionsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.loadRecordings()
@@ -72,17 +81,66 @@ fun DataScreen(
                         }
                         IconButton(
                             onClick = {
-                                scope.launch {
-                                    viewModel.deleteSelected()
-                                }
+                                showDeleteDialog = true
                             },
                             enabled = selectedRecordings.isNotEmpty()
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete")
                         }
                     } else {
-                        IconButton(onClick = { viewModel.loadRecordings() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        // Menu button
+                        var showMenu by remember { mutableStateOf(false) }
+
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Refresh") },
+                                onClick = {
+                                    viewModel.loadRecordings()
+                                    showMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Refresh, contentDescription = null)
+                                }
+                            )
+                            if (recordings.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete All") },
+                                    onClick = {
+                                        showDeleteAllDialog = true
+                                        showMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.DeleteForever,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Storage Info") },
+                                onClick = {
+                                    scope.launch {
+                                        val info = viewModel.getStorageInfo()
+                                        snackbarHostState.showSnackbar(
+                                            message = info,
+                                            duration = SnackbarDuration.Long
+                                        )
+                                    }
+                                    showMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Storage, contentDescription = null)
+                                }
+                            )
                         }
                     }
                 },
@@ -120,12 +178,208 @@ fun DataScreen(
                             }
                         },
                         onRecordingLongClick = { recording ->
-                            viewModel.startSelection(recording)
+                            if (!isSelectionMode) {
+                                selectedRecording = recording
+                                showOptionsDialog = true
+                            } else {
+                                viewModel.toggleSelection(recording)
+                            }
                         }
                     )
                 }
             }
         }
+    }
+
+    // Delete confirmation dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Recordings") },
+            text = {
+                Text("Are you sure you want to delete ${selectedRecordings.size} recording(s)? This action cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            viewModel.deleteSelected()
+                            showDeleteDialog = false
+                            snackbarHostState.showSnackbar(
+                                message = "Recordings deleted",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Delete all confirmation dialog
+    if (showDeleteAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllDialog = false },
+            title = { Text("Delete All Recordings") },
+            text = {
+                Text("Are you sure you want to delete ALL recordings (${recordings.size} files)? This action cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            viewModel.deleteAllRecordings()
+                            showDeleteAllDialog = false
+                            snackbarHostState.showSnackbar(
+                                message = "All recordings deleted",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Delete single recording dialog
+    recordingToDelete?.let { recording ->
+        AlertDialog(
+            onDismissRequest = { recordingToDelete = null },
+            title = { Text("Delete Recording") },
+            text = {
+                Text("Are you sure you want to delete \"${recording.name}\"? This action cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            viewModel.deleteRecording(recording)
+                            recordingToDelete = null
+                            selectedRecording = null
+                            snackbarHostState.showSnackbar(
+                                message = "Recording deleted",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { recordingToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Options dialog for single recording
+    if (showOptionsDialog && selectedRecording != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showOptionsDialog = false
+                selectedRecording = null
+            },
+            title = {
+                Text(
+                    selectedRecording!!.name,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            text = {
+                Column {
+                    ListItem(
+                        headlineContent = { Text("Open") },
+                        leadingContent = {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null)
+                        },
+                        modifier = Modifier.clickable {
+                            viewModel.openRecording(selectedRecording!!)
+                            showOptionsDialog = false
+                            selectedRecording = null
+                        }
+                    )
+                    ListItem(
+                        headlineContent = { Text("Share") },
+                        leadingContent = {
+                            Icon(Icons.Default.Share, contentDescription = null)
+                        },
+                        modifier = Modifier.clickable {
+                            viewModel.shareRecording(selectedRecording!!)
+                            showOptionsDialog = false
+                            selectedRecording = null
+                        }
+                    )
+                    ListItem(
+                        headlineContent = { Text("Select Multiple") },
+                        leadingContent = {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null)
+                        },
+                        modifier = Modifier.clickable {
+                            viewModel.startSelection(selectedRecording!!)
+                            showOptionsDialog = false
+                            selectedRecording = null
+                        }
+                    )
+                    Divider()
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                "Delete",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        modifier = Modifier.clickable {
+                            recordingToDelete = selectedRecording
+                            showOptionsDialog = false
+                        }
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showOptionsDialog = false
+                        selectedRecording = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -157,7 +411,7 @@ fun EmptyDataScreen() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RecordingsList(
     recordings: List<RecordingFile>,
@@ -183,7 +437,7 @@ fun RecordingsList(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RecordingCard(
     recording: RecordingFile,
@@ -193,8 +447,12 @@ fun RecordingCard(
     onLongClick: () -> Unit
 ) {
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         colors = if (isSelected) {
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -277,16 +535,6 @@ fun RecordingCard(
                     }
                 }
             }
-
-            // More options
-            if (!isSelectionMode) {
-                IconButton(onClick = { /* Show options menu */ }) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "More options"
-                    )
-                }
-            }
         }
     }
 }
@@ -295,7 +543,7 @@ fun formatFileSize(bytes: Long): String {
     return when {
         bytes < 1024 -> "$bytes B"
         bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-        else -> "${bytes / (1024 * 1024)} MB"
+        else -> String.format("%.2f MB", bytes / (1024.0 * 1024.0))
     }
 }
 

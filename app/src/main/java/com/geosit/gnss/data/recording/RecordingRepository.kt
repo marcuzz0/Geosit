@@ -64,8 +64,16 @@ class RecordingRepository @Inject constructor(
     private fun recordData(data: ByteArray) {
         scope.launch {
             try {
-                outputStream?.write(data)
-                outputStream?.flush()
+                val stream = outputStream
+                if (stream == null || !_recordingState.value.isRecording) {
+                    Timber.w("Cannot record data - not recording or stream is null")
+                    return@launch
+                }
+
+                withContext(Dispatchers.IO) {
+                    stream.write(data)
+                    stream.flush()
+                }
 
                 val currentBytes = _recordingState.value.recordedBytes + data.size
                 val duration = System.currentTimeMillis() - recordingStartTime
@@ -78,7 +86,8 @@ class RecordingRepository @Inject constructor(
                 )
 
             } catch (e: Exception) {
-                Timber.e(e, "Failed to record data")
+                Timber.e(e, "Failed to record data: ${e.message}")
+                // Don't stop recording on write error, just log it
             }
         }
     }
@@ -113,16 +122,42 @@ class RecordingRepository @Inject constructor(
 
                 val recordingDir = File(documentsDir, "GeoSit/$timestamp")
                 if (!recordingDir.exists()) {
-                    recordingDir.mkdirs()
+                    if (!recordingDir.mkdirs()) {
+                        Timber.e("Failed to create recording directory: ${recordingDir.absolutePath}")
+                        _recordingState.value = _recordingState.value.copy(
+                            error = "Failed to create recording directory"
+                        )
+                        return@launch
+                    }
                 }
+                Timber.d("Recording directory: ${recordingDir.absolutePath}")
 
                 // Create UBX file
                 recordingFile = File(recordingDir, fileName)
-                outputStream = FileOutputStream(recordingFile)
+                try {
+                    outputStream = FileOutputStream(recordingFile)
+                    Timber.d("Created UBX file: ${recordingFile?.absolutePath}")
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to create UBX file")
+                    _recordingState.value = _recordingState.value.copy(
+                        error = "Failed to create recording file: ${e.message}"
+                    )
+                    return@launch
+                }
 
                 // Create CSV file for metadata
                 val csvFile = File(recordingDir, "${timestamp}.csv")
-                csvWriter = FileWriter(csvFile)
+                try {
+                    csvWriter = FileWriter(csvFile)
+                    Timber.d("Created CSV file: ${csvFile.absolutePath}")
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to create CSV file")
+                    outputStream?.close()
+                    _recordingState.value = _recordingState.value.copy(
+                        error = "Failed to create CSV file: ${e.message}"
+                    )
+                    return@launch
+                }
 
                 // Write CSV header
                 writeCSVHeader(mode, pointName, instrumentHeight, staticDuration)
@@ -176,17 +211,37 @@ class RecordingRepository @Inject constructor(
 
         scope.launch {
             try {
-                // Close files
-                outputStream?.close()
-                csvWriter?.close()
-
                 val session = _recordingState.value.currentSession
-                if (session != null) {
-                    val endTime = Date()
-                    val fileSize = recordingFile?.length() ?: 0
+                val endTime = Date()
 
-                    // Write final CSV data
-                    writeFinalCSVData(session, endTime)
+                // Write final CSV data BEFORE closing files
+                if (session != null && csvWriter != null) {
+                    withContext(Dispatchers.IO) {
+                        writeFinalCSVData(session, endTime)
+                    }
+                }
+
+                // Now close files
+                withContext(Dispatchers.IO) {
+                    try {
+                        outputStream?.flush()
+                        outputStream?.close()
+                        Timber.d("Output stream closed")
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error closing output stream")
+                    }
+
+                    try {
+                        csvWriter?.flush()
+                        csvWriter?.close()
+                        Timber.d("CSV writer closed")
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error closing CSV writer")
+                    }
+                }
+
+                if (session != null) {
+                    val fileSize = recordingFile?.length() ?: 0
 
                     val completedSession = session.copy(
                         endTime = endTime,
@@ -195,26 +250,37 @@ class RecordingRepository @Inject constructor(
                         dataPointsCount = _recordingState.value.dataReceivedCount.toInt()
                     )
 
-                    _recordingState.value = RecordingState(
-                        isRecording = false,
-                        currentSession = completedSession,
-                        recordingMode = null,
-                        error = null
-                    )
-
-                    Timber.d("Recording stopped: ${session.fileName}, size: $fileSize bytes")
+                    Timber.d("Recording stopped successfully: ${session.fileName}, size: $fileSize bytes, points: ${_recordingState.value.dataReceivedCount}")
                 }
 
-                // Reset
+                // Reset state
+                _recordingState.value = RecordingState(
+                    isRecording = false,
+                    currentSession = null,
+                    recordingMode = null,
+                    error = null
+                )
+
+                // Clear references
                 outputStream = null
                 csvWriter = null
                 recordingFile = null
 
             } catch (e: Exception) {
-                Timber.e(e, "Failed to stop recording")
-                _recordingState.value = _recordingState.value.copy(
+                Timber.e(e, "Failed to stop recording: ${e.message}")
+
+                // Force reset state even on error
+                _recordingState.value = RecordingState(
+                    isRecording = false,
+                    currentSession = null,
+                    recordingMode = null,
                     error = "Failed to stop recording: ${e.message}"
                 )
+
+                // Clear references
+                outputStream = null
+                csvWriter = null
+                recordingFile = null
             }
         }
     }
@@ -242,10 +308,12 @@ class RecordingRepository @Inject constructor(
                 val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS", Locale.getDefault())
                 dateFormat.timeZone = TimeZone.getTimeZone("UTC")
 
-                csvWriter?.appendLine(
-                    "${point.name},${dateFormat.format(point.timestamp)},${action.name},${point.instrumentHeight}"
-                )
-                csvWriter?.flush()
+                withContext(Dispatchers.IO) {
+                    csvWriter?.appendLine(
+                        "${point.name},${dateFormat.format(point.timestamp)},${action.name},${point.instrumentHeight}"
+                    )
+                    csvWriter?.flush()
+                }
 
                 val updatedPoints = currentState.stopAndGoPoints + point
                 _recordingState.value = currentState.copy(stopAndGoPoints = updatedPoints)
@@ -296,17 +364,23 @@ class RecordingRepository @Inject constructor(
     }
 
     private fun writeFinalCSVData(session: RecordingSession, endTime: Date) {
-        val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS", Locale.getDefault())
-        dateFormat.timeZone = TimeZone.getTimeZone("UTC")
+        try {
+            val dateFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS", Locale.getDefault())
+            dateFormat.timeZone = TimeZone.getTimeZone("UTC")
 
-        val duration = (endTime.time - session.startTime.time) / 1000 // seconds
+            val duration = (endTime.time - session.startTime.time) / 1000 // seconds
 
-        csvWriter?.apply {
-            if (session.mode != RecordingMode.STOP_AND_GO) {
-                appendLine("# End: ${dateFormat.format(endTime)}")
-                appendLine("# Duration: ${duration}s")
+            csvWriter?.apply {
+                if (session.mode != RecordingMode.STOP_AND_GO) {
+                    appendLine("")
+                    appendLine("# End: ${dateFormat.format(endTime)}")
+                    appendLine("# Duration: ${duration}s")
+                    appendLine("# Data points: ${_recordingState.value.dataReceivedCount}")
+                }
+                flush()
             }
-            flush()
+        } catch (e: Exception) {
+            Timber.e(e, "Error writing final CSV data")
         }
     }
 
