@@ -41,6 +41,13 @@ class DataViewModel @Inject constructor(
     private val _isSelectionMode = MutableStateFlow(false)
     val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
     init {
         loadRecordings()
     }
@@ -90,6 +97,11 @@ class DataViewModel @Inject constructor(
 
     private fun parseRecordingFile(ubxFile: File, csvFile: File?): RecordingFile? {
         return try {
+            Timber.d("Parsing recording file: ${ubxFile.absolutePath}")
+            Timber.d("File size: ${ubxFile.length()} bytes")
+            Timber.d("File exists: ${ubxFile.exists()}")
+            Timber.d("Can read: ${ubxFile.canRead()}")
+
             val fileName = ubxFile.nameWithoutExtension
             val dateFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault())
             val date = dateFormat.parse(fileName) ?: Date()
@@ -100,6 +112,7 @@ class DataViewModel @Inject constructor(
             var duration = 0
 
             csvFile?.let { csv ->
+                Timber.d("Found CSV file: ${csv.absolutePath}")
                 val lines = csv.readLines()
                 lines.find { it.startsWith("# Mode:") }?.let { modeLine ->
                     mode = when {
@@ -127,7 +140,7 @@ class DataViewModel @Inject constructor(
                 }
             }
 
-            RecordingFile(
+            val recording = RecordingFile(
                 id = ubxFile.absolutePath,
                 name = pointName,
                 mode = mode,
@@ -137,6 +150,10 @@ class DataViewModel @Inject constructor(
                 filePath = ubxFile.absolutePath,
                 csvPath = csvFile?.absolutePath
             )
+
+            Timber.d("Parsed recording: $recording")
+            return recording
+
         } catch (e: Exception) {
             Timber.e(e, "Error parsing recording file: ${ubxFile.name}")
             null
@@ -173,6 +190,7 @@ class DataViewModel @Inject constructor(
             try {
                 val file = File(recording.filePath)
                 if (!file.exists()) {
+                    _errorMessage.value = "File not found: ${file.name}"
                     Timber.e("File not found: ${recording.filePath}")
                     return@launch
                 }
@@ -206,6 +224,7 @@ class DataViewModel @Inject constructor(
                 }
 
             } catch (e: Exception) {
+                _errorMessage.value = "Cannot open file: ${e.message}"
                 Timber.e(e, "Error opening file: ${e.message}")
             }
         }
@@ -219,6 +238,7 @@ class DataViewModel @Inject constructor(
                 // Add UBX file
                 val ubxFile = File(recording.filePath)
                 if (!ubxFile.exists()) {
+                    _errorMessage.value = "Recording file not found"
                     Timber.e("UBX file not found: ${recording.filePath}")
                     return@launch
                 }
@@ -249,6 +269,7 @@ class DataViewModel @Inject constructor(
                 }
 
                 if (uris.isEmpty()) {
+                    _errorMessage.value = "No files available to share"
                     Timber.e("No valid URIs for sharing")
                     return@launch
                 }
@@ -280,6 +301,7 @@ class DataViewModel @Inject constructor(
                 Timber.d("Share intent launched successfully")
 
             } catch (e: Exception) {
+                _errorMessage.value = "Cannot share file: ${e.message}"
                 Timber.e(e, "Error sharing file: ${e.message}")
             }
         }
@@ -424,6 +446,7 @@ class DataViewModel @Inject constructor(
         var totalSize = 0L
         var fileCount = 0
         var sessionCount = 0
+        val fileDetails = mutableListOf<String>()
 
         geoSitDir.listFiles()?.filter { it.isDirectory }?.forEach { sessionDir ->
             sessionCount++
@@ -431,6 +454,7 @@ class DataViewModel @Inject constructor(
                 if (file.isFile) {
                     totalSize += file.length()
                     fileCount++
+                    fileDetails.add("${file.name} (${formatFileSize(file.length())})")
                 }
             }
         }
@@ -447,6 +471,19 @@ class DataViewModel @Inject constructor(
             appendLine("\nSessions: $sessionCount")
             appendLine("Total files: $fileCount")
             appendLine("Total size: $sizeStr")
+
+            if (fileDetails.isNotEmpty() && fileDetails.size <= 10) {
+                appendLine("\nFiles:")
+                fileDetails.forEach { appendLine("• $it") }
+            }
+        }
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            else -> String.format("%.2f MB", bytes / (1024.0 * 1024.0))
         }
     }
 }
