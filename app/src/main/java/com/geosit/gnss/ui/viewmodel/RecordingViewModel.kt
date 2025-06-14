@@ -39,7 +39,21 @@ class RecordingViewModel @Inject constructor(
         initialValue = recordingRepository.recordingState.value
     )
 
+    // Stop & Go state
+    data class StopGoState(
+        val isInStopPhase: Boolean = false,
+        val remainingTime: Int = 0,
+        val currentPointName: String = "",
+        val canStop: Boolean = true,
+        val canGo: Boolean = false
+    )
+
+    private val _stopGoState = MutableStateFlow(StopGoState())
+    val stopGoState: StateFlow<StopGoState> = _stopGoState.asStateFlow()
+
     private var timerJob: Job? = null
+    private var stopGoTimerJob: Job? = null
+    private var stopGoDuration: Int = 30 // Default duration
 
     init {
         // Monitora lo stato di registrazione per avviare/fermare il timer
@@ -49,6 +63,12 @@ class RecordingViewModel @Inject constructor(
                     startTimer()
                 } else if (!state.isRecording && timerJob != null) {
                     stopTimer()
+                }
+
+                // Reset Stop&Go state when recording mode changes
+                if (state.recordingMode != RecordingMode.STOP_AND_GO) {
+                    _stopGoState.value = StopGoState()
+                    stopGoTimerJob?.cancel()
                 }
             }
         }
@@ -77,6 +97,19 @@ class RecordingViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             try {
+                // Save Stop & Go duration if applicable
+                if (mode == RecordingMode.STOP_AND_GO) {
+                    stopGoDuration = staticDuration
+                    // Initialize Stop&Go state
+                    _stopGoState.value = StopGoState(
+                        isInStopPhase = false,
+                        remainingTime = 0,
+                        currentPointName = "",
+                        canStop = true,
+                        canGo = false
+                    )
+                }
+
                 recordingRepository.startRecording(
                     mode = mode,
                     pointName = pointName,
@@ -93,6 +126,8 @@ class RecordingViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 recordingRepository.stopRecording()
+                _stopGoState.value = StopGoState() // Reset Stop & Go state
+                stopGoTimerJob?.cancel()
             } catch (e: Exception) {
                 Timber.e(e, "Error stopping recording")
             }
@@ -100,14 +135,59 @@ class RecordingViewModel @Inject constructor(
     }
 
     fun addStopPoint() {
+        if (_stopGoState.value.isInStopPhase) {
+            return // Already in stop phase
+        }
+
         viewModelScope.launch {
-            recordingRepository.addStopAndGoPoint(StopGoAction.STOP)
+            val pointName = "Point${recordingState.value.stopAndGoPoints.count { it.action == StopGoAction.STOP } + 1}"
+
+            _stopGoState.value = StopGoState(
+                isInStopPhase = true,
+                remainingTime = stopGoDuration,
+                currentPointName = pointName,
+                canStop = false,
+                canGo = false
+            )
+
+            recordingRepository.addStopAndGoPoint(StopGoAction.STOP, pointName)
+
+            // Start countdown timer
+            stopGoTimerJob?.cancel()
+            stopGoTimerJob = viewModelScope.launch {
+                for (i in stopGoDuration downTo 1) {
+                    _stopGoState.value = _stopGoState.value.copy(remainingTime = i)
+                    delay(1000)
+                }
+
+                // Countdown complete - enable GO button
+                _stopGoState.value = _stopGoState.value.copy(
+                    remainingTime = 0,
+                    canStop = false,
+                    canGo = true
+                )
+            }
         }
     }
 
     fun addGoPoint() {
+        if (!_stopGoState.value.isInStopPhase || !_stopGoState.value.canGo) {
+            return
+        }
+
         viewModelScope.launch {
-            recordingRepository.addStopAndGoPoint(StopGoAction.GO)
+            recordingRepository.addStopAndGoPoint(StopGoAction.GO, _stopGoState.value.currentPointName)
+
+            // Reset to allow new stop
+            _stopGoState.value = StopGoState(
+                isInStopPhase = false,
+                remainingTime = 0,
+                currentPointName = "",
+                canStop = true,
+                canGo = false
+            )
+
+            stopGoTimerJob?.cancel()
         }
     }
 
@@ -147,7 +227,9 @@ class RecordingViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         stopTimer()
-        // Non chiamare cleanup() se non esiste
+        stopGoTimerJob?.cancel()
+
+        // Stop recording if still active
         if (recordingState.value.isRecording) {
             stopRecording()
         }

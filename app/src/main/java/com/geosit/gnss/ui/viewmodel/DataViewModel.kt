@@ -39,6 +39,10 @@ class DataViewModel @Inject constructor(
     private val _isSelectionMode = MutableStateFlow(false)
     val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
 
+    init {
+        loadRecordings()
+    }
+
     fun loadRecordings() {
         viewModelScope.launch {
             _isLoading.value = true
@@ -258,6 +262,33 @@ class DataViewModel @Inject constructor(
         }
     }
 
+    fun shareRecording(recording: RecordingFile) {
+        viewModelScope.launch {
+            try {
+                val file = File(recording.filePath)
+                if (!file.exists()) return@launch
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                context.startActivity(Intent.createChooser(intent, "Share recording"))
+
+            } catch (e: Exception) {
+                Timber.e(e, "Error sharing recording")
+            }
+        }
+    }
+
     fun deleteSelected() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -285,6 +316,92 @@ class DataViewModel @Inject constructor(
                     Timber.e(e, "Error deleting files")
                 }
             }
+        }
+    }
+
+    fun deleteRecording(recording: RecordingFile) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val file = File(recording.filePath)
+                    val sessionDir = file.parentFile
+
+                    sessionDir?.deleteRecursively()
+
+                    withContext(Dispatchers.Main) {
+                        loadRecordings() // Ricarica la lista
+                    }
+
+                    Timber.d("Deleted recording: ${recording.name}")
+
+                } catch (e: Exception) {
+                    Timber.e(e, "Error deleting recording")
+                }
+            }
+        }
+    }
+
+    fun deleteAllRecordings() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+                    val geoSitDir = File(documentsDir, "GeoSit")
+
+                    if (geoSitDir.exists()) {
+                        geoSitDir.deleteRecursively()
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        _recordings.value = emptyList()
+                        clearSelection()
+                    }
+
+                    Timber.d("All recordings deleted")
+
+                } catch (e: Exception) {
+                    Timber.e(e, "Error deleting all recordings")
+                }
+            }
+        }
+    }
+
+    fun getStorageInfo(): String {
+        return try {
+            val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            val geoSitDir = File(documentsDir, "GeoSit")
+
+            if (!geoSitDir.exists()) {
+                return "Storage: 0 MB used"
+            }
+
+            var totalSize = 0L
+            var fileCount = 0
+            geoSitDir.walkTopDown().forEach { file ->
+                if (file.isFile) {
+                    totalSize += file.length()
+                    fileCount++
+                }
+            }
+
+            val availableSpace = documentsDir?.freeSpace ?: 0L
+            val totalSpace = documentsDir?.totalSpace ?: 0L
+            val usedPercentage = if (totalSpace > 0) {
+                ((totalSpace - availableSpace) * 100 / totalSpace).toInt()
+            } else 0
+
+            "${formatFileSize(totalSize)} used • $fileCount files • $usedPercentage% storage"
+        } catch (e: Exception) {
+            Timber.e(e, "Error calculating storage info")
+            "Storage: Unknown"
+        }
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            else -> String.format(Locale.US, "%.2f MB", bytes / (1024.0 * 1024.0))
         }
     }
 }
