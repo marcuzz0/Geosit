@@ -5,6 +5,7 @@ import android.hardware.usb.UsbManager
 import com.geosit.gnss.data.gnss.GnssDataProcessor
 import com.geosit.gnss.data.model.Device
 import com.geosit.gnss.data.model.displayName
+import com.geosit.gnss.data.settings.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -74,6 +76,21 @@ class ConnectionManager @Inject constructor(
                 dataReceivedCount = 0,
                 lastDataTimestamp = System.currentTimeMillis()
             )
+
+            // Apply navigation rate settings after connection
+            scope.launch {
+                try {
+                    val settings = settingsRepository.recordingSettings.first()
+                    if (isConnected()) {
+                        setNavigationRate(settings.navigationRate)
+
+                        // Configure UBX messages if available
+                        configureUbxMessages(settings.enableRawData, settings.enableHighPrecision)
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Error applying navigation rate settings")
+                }
+            }
         }
 
         override fun onDisconnected() {
@@ -225,6 +242,74 @@ class ConnectionManager @Inject constructor(
     fun sendUbxCommand(messageClass: Int, messageId: Int, payload: ByteArray = byteArrayOf()) {
         val message = buildUbxMessage(messageClass, messageId, payload)
         sendData(message)
+    }
+
+    fun setNavigationRate(rateHz: Int) {
+        // CFG-RATE: measRate(2) + navRate(2) + timeRef(2)
+        val payload = ByteArray(6)
+
+        val measRate = 1000 / rateHz // millisecondi tra le misure
+
+        // Measurement rate in ms (little endian)
+        payload[0] = (measRate and 0xFF).toByte()
+        payload[1] = (measRate shr 8).toByte()
+
+        // Navigation rate (cycles) - sempre 1
+        payload[2] = 0x01
+        payload[3] = 0x00
+
+        // Time reference: 0 = UTC, 1 = GPS
+        payload[4] = 0x01
+        payload[5] = 0x00
+
+        sendUbxCommand(0x06, 0x08, payload)
+
+        Timber.d("Set navigation rate to $rateHz Hz")
+    }
+
+    private fun configureUbxMessages(enableRawData: Boolean, enableHighPrecision: Boolean) {
+        // Basic messages always enabled
+        // NAV-PVT
+        enableUbxMessage(0x01, 0x07, 1)
+        // NAV-STATUS
+        enableUbxMessage(0x01, 0x03, 1)
+        // NAV-SAT
+        enableUbxMessage(0x01, 0x35, 1)
+
+        if (enableRawData) {
+            // RXM-RAWX
+            enableUbxMessage(0x02, 0x15, 1)
+            // RXM-SFRBX
+            enableUbxMessage(0x02, 0x13, 1)
+        }
+
+        if (enableHighPrecision) {
+            // NAV-HPPOSECEF
+            enableUbxMessage(0x01, 0x13, 1)
+            // NAV-HPPOSLLH
+            enableUbxMessage(0x01, 0x14, 1)
+            // NAV-RELPOSNED
+            enableUbxMessage(0x01, 0x3C, 1)
+        }
+
+        Timber.d("Configured UBX messages - Raw: $enableRawData, HighPrecision: $enableHighPrecision")
+    }
+
+    private fun enableUbxMessage(msgClass: Int, msgId: Int, rate: Int) {
+        // CFG-MSG payload: class(1) + id(1) + rate for each port
+        val payload = ByteArray(8)
+        payload[0] = msgClass.toByte()
+        payload[1] = msgId.toByte()
+
+        // Enable on USB (port 3) and UART1 (port 1)
+        payload[2] = 0 // DDC/I2C
+        payload[3] = rate.toByte() // UART1
+        payload[4] = 0 // UART2
+        payload[5] = rate.toByte() // USB
+        payload[6] = 0 // SPI
+        payload[7] = 0 // Reserved
+
+        sendUbxCommand(0x06, 0x01, payload)
     }
 
     private fun buildUbxMessage(msgClass: Int, msgId: Int, payload: ByteArray): ByteArray {

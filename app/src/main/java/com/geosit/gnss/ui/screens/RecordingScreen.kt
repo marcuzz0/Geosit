@@ -27,6 +27,7 @@ fun RecordingScreen(
     val connectionState by viewModel.connectionState.collectAsState()
     val recordingState by viewModel.recordingState.collectAsState()
     val gnssPosition by viewModel.gnssPosition.collectAsState()
+    val recordingSettings by viewModel.recordingSettings.collectAsState(initial = null)
 
     // Stati locali UI
     var selectedMode by remember { mutableStateOf(RecordingMode.STATIC) }

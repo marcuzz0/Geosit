@@ -1,7 +1,4 @@
-package com.geosit.gnss.ui.viewmodel
-
-class SettingsRepository {
-}package com.geosit.gnss.data.settings
+package com.geosit.gnss.data.settings
 
 import android.content.Context
 import androidx.datastore.core.DataStore
