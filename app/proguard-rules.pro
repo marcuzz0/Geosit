@@ -6,8 +6,17 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Keep data classes
--keepclassmembers class com.geosit.gnss.core.data.model.** { *; }
--keepclassmembers class com.geosit.gnss.core.data.database.entities.** { *; }
+-keepclassmembers class com.geosit.gnss.data.model.** { *; }
+-keepclassmembers class com.geosit.gnss.data.gnss.** { *; }
+-keep class com.geosit.gnss.data.model.** { *; }
+-keep class com.geosit.gnss.data.gnss.** { *; }
+
+# OSMDroid
+-keep class org.osmdroid.** { *; }
+-keep class org.apache.commons.** { *; }
+-keep class org.slf4j.** { *; }
+-keep class android.database.sqlite.SQLiteOpenHelper { *; }
+-dontwarn org.osmdroid.**
 
 # Kotlin
 -dontwarn kotlin.**
@@ -25,6 +34,8 @@
 -keepclassmembernames class kotlinx.** {
     volatile <fields>;
 }
+-keep class kotlinx.coroutines.android.AndroidDispatcherFactory { *; }
+-keep class kotlinx.coroutines.android.AndroidExceptionPreHandler { *; }
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
@@ -52,10 +63,13 @@
 -keep class androidx.compose.** { *; }
 -keepclassmembers class androidx.compose.** { *; }
 -keep @androidx.compose.runtime.Composable class * { *; }
+-dontwarn androidx.compose.material.**
 
-# Serialization
--keepattributes *Annotation*, InnerClasses
--dontnote kotlinx.serialization.AnnotationsKt
+# DataStore
+-keep class androidx.datastore.*.** { *; }
+
+# Navigation
+-keepnames class androidx.navigation.fragment.NavHostFragment
 
 # Timber
 -assumenosideeffects class timber.log.Timber* {
@@ -69,4 +83,35 @@
     public static int d(...);
     public static int v(...);
     public static int i(...);
+}
+
+# Google Play Services
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.android.gms.**
+
+# Keep native methods
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep custom views
+-keep public class * extends android.view.View {
+    public <init>(android.content.Context);
+    public <init>(android.content.Context, android.util.AttributeSet);
+    public <init>(android.content.Context, android.util.AttributeSet, int);
+}
+
+# Serialization
+-keepattributes *Annotation*, InnerClasses, Signature, SourceFile, LineNumberTable
+-dontnote kotlinx.serialization.AnnotationsKt
+
+# Enum classes
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# Parcelable
+-keepclassmembers class * implements android.os.Parcelable {
+    static ** CREATOR;
 }

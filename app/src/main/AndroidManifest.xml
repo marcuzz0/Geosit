@@ -17,40 +17,33 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Storage Permissions for OSM tile caching -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <!-- Service Permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Notification Permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Other Permissions -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Storage Permissions -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-
-    <!-- USB Permissions -->
-    <uses-feature android:name="android.hardware.usb.host" />
+    <!-- USB Host Feature -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-permission android:name="android.permission.USB_PERMISSION" />
 
-    <!-- Queries for Android 11+ to handle file intents -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="*/*" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SEND" />
-            <data android:mimeType="*/*" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SEND_MULTIPLE" />
-            <data android:mimeType="*/*" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.CHOOSER" />
-        </intent>
-    </queries>
+    <!-- Location Feature -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="true" />
+
+    <!-- Bluetooth Feature -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <application
         android:name=".GeoSitApplication"
@@ -63,6 +56,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GeoSit"
         android:enableOnBackInvokedCallback="true"
+        android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         tools:targetApi="34">
 
@@ -70,9 +64,9 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:configChanges="orientation|keyboardHidden|screenSize"
-            android:theme="@style/Theme.GeoSit">
+            android:theme="@style/Theme.GeoSit"
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -92,13 +86,9 @@
             android:name=".service.recording.RecordingService"
             android:foregroundServiceType="location"
             android:exported="false"
-            android:enabled="true">
-            <intent-filter>
-                <action android:name="com.geosit.gnss.RECORDING_SERVICE" />
-            </intent-filter>
-        </service>
+            android:enabled="true" />
 
-        <!-- File Provider for sharing files -->
+        <!-- File Provider for exports -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -109,15 +99,13 @@
                 android:resource="@xml/file_path" />
         </provider>
 
-        <!-- USB Broadcast Receiver -->
-        <receiver
-            android:name=".receiver.UsbReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
-                <action android:name="android.hardware.usb.action.USB_DEVICE_DETACHED" />
-            </intent-filter>
-        </receiver>
+        <!-- OSMDroid Configuration -->
+        <meta-data
+            android:name="osmdroid.basePath"
+            android:value="osmdroid" />
+        <meta-data
+            android:name="osmdroid.cachePath"
+            android:value="osmdroid/tiles" />
 
     </application>
 

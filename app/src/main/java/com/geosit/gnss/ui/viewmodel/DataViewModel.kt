@@ -1,9 +1,7 @@
 package com.geosit.gnss.ui.viewmodel
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
@@ -41,17 +39,6 @@ class DataViewModel @Inject constructor(
     private val _isSelectionMode = MutableStateFlow(false)
     val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-
-    fun clearError() {
-        _errorMessage.value = null
-    }
-
-    init {
-        loadRecordings()
-    }
-
     fun loadRecordings() {
         viewModelScope.launch {
             _isLoading.value = true
@@ -69,7 +56,7 @@ class DataViewModel @Inject constructor(
                     val recordingFiles = mutableListOf<RecordingFile>()
 
                     geoSitDir.listFiles()?.filter { it.isDirectory }?.forEach { sessionDir ->
-                        // Find .ubx file in directory
+                        // Cerca il file .ubx nella directory
                         val ubxFile = sessionDir.listFiles()?.find { it.extension == "ubx" }
                         val csvFile = sessionDir.listFiles()?.find { it.extension == "csv" }
 
@@ -79,7 +66,7 @@ class DataViewModel @Inject constructor(
                         }
                     }
 
-                    // Sort by date (most recent first)
+                    // Ordina per data (più recenti prima)
                     recordingFiles.sortByDescending { it.date }
 
                     withContext(Dispatchers.Main) {
@@ -97,33 +84,32 @@ class DataViewModel @Inject constructor(
 
     private fun parseRecordingFile(ubxFile: File, csvFile: File?): RecordingFile? {
         return try {
-            Timber.d("Parsing recording file: ${ubxFile.absolutePath}")
-            Timber.d("File size: ${ubxFile.length()} bytes")
-            Timber.d("File exists: ${ubxFile.exists()}")
-            Timber.d("Can read: ${ubxFile.canRead()}")
-
             val fileName = ubxFile.nameWithoutExtension
             val dateFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault())
             val date = dateFormat.parse(fileName) ?: Date()
 
-            // Determine mode from CSV if available
+            // Determina il modo dalla lettura del CSV se disponibile
             var mode = RecordingMode.KINEMATIC // Default
             var pointName = fileName
             var duration = 0
+            var startTime: Date? = null
+            var endTime: Date? = null
 
             csvFile?.let { csv ->
-                Timber.d("Found CSV file: ${csv.absolutePath}")
                 val lines = csv.readLines()
+
+                // Parse mode - cerca sia "STOP & GO" che "STOP AND GO"
                 lines.find { it.startsWith("# Mode:") }?.let { modeLine ->
                     mode = when {
                         modeLine.contains("STATIC") -> RecordingMode.STATIC
                         modeLine.contains("KINEMATIC") -> RecordingMode.KINEMATIC
-                        modeLine.contains("STOP & GO") -> RecordingMode.STOP_AND_GO
+                        modeLine.contains("STOP AND GO") -> RecordingMode.STOP_AND_GO
+                        modeLine.contains("STOP & GO") -> RecordingMode.STOP_AND_GO // Retrocompatibilità
                         else -> RecordingMode.KINEMATIC
                     }
                 }
 
-                // Look for point/track name
+                // Cerca il nome del punto/track
                 lines.find { it.startsWith("# Point Name:") ||
                         it.startsWith("# Track Name:") ||
                         it.startsWith("# Session Name:") }?.let { nameLine ->
@@ -133,14 +119,41 @@ class DataViewModel @Inject constructor(
                     }
                 }
 
-                // Extract duration if available
-                lines.find { it.startsWith("# Duration:") }?.let { durationLine ->
-                    val durationStr = durationLine.substringAfter(":").trim()
-                    duration = durationStr.removeSuffix("s").toIntOrNull() ?: 0
+                // Parse timestamps per calcolare la durata
+                val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd HH:mm:ss.SSS", Locale.getDefault())
+                dateTimeFormat.timeZone = TimeZone.getTimeZone("UTC")
+
+                lines.find { it.startsWith("# Start:") }?.let { startLine ->
+                    try {
+                        val timeStr = startLine.substringAfter(":").trim()
+                        startTime = dateTimeFormat.parse(timeStr)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error parsing start time")
+                    }
+                }
+
+                lines.find { it.startsWith("# End:") }?.let { endLine ->
+                    try {
+                        val timeStr = endLine.substringAfter(":").trim()
+                        endTime = dateTimeFormat.parse(timeStr)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error parsing end time")
+                    }
+                }
+
+                // Calcola durata in secondi
+                if (startTime != null && endTime != null) {
+                    duration = ((endTime!!.time - startTime!!.time) / 1000).toInt()
+                } else {
+                    // Prova a prendere la durata diretta se presente
+                    lines.find { it.startsWith("# Duration:") }?.let { durationLine ->
+                        val durationStr = durationLine.substringAfter(":").trim()
+                        duration = durationStr.replace("s", "").trim().toIntOrNull() ?: 0
+                    }
                 }
             }
 
-            val recording = RecordingFile(
+            RecordingFile(
                 id = ubxFile.absolutePath,
                 name = pointName,
                 mode = mode,
@@ -150,10 +163,6 @@ class DataViewModel @Inject constructor(
                 filePath = ubxFile.absolutePath,
                 csvPath = csvFile?.absolutePath
             )
-
-            Timber.d("Parsed recording: $recording")
-            return recording
-
         } catch (e: Exception) {
             Timber.e(e, "Error parsing recording file: ${ubxFile.name}")
             null
@@ -169,7 +178,7 @@ class DataViewModel @Inject constructor(
         }
         _selectedRecordings.value = current
 
-        // Exit selection mode if no items selected
+        // Esci dalla modalità selezione se non ci sono più elementi selezionati
         if (current.isEmpty()) {
             _isSelectionMode.value = false
         }
@@ -186,123 +195,26 @@ class DataViewModel @Inject constructor(
     }
 
     fun openRecording(recording: RecordingFile) {
+        // Apri il file con un'app esterna
         viewModelScope.launch {
             try {
                 val file = File(recording.filePath)
-                if (!file.exists()) {
-                    _errorMessage.value = "File not found: ${file.name}"
-                    Timber.e("File not found: ${recording.filePath}")
-                    return@launch
-                }
-
                 val uri = FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.fileprovider",
                     file
                 )
 
-                // Determine MIME type
-                val mimeType = when (file.extension.lowercase()) {
-                    "ubx" -> "application/octet-stream"
-                    "csv" -> "text/csv"
-                    else -> "*/*"
-                }
-
                 val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, mimeType)
+                    setDataAndType(uri, "application/octet-stream")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
 
-                try {
-                    context.startActivity(intent)
-                } catch (e: ActivityNotFoundException) {
-                    // If no app can handle the file, show chooser
-                    val chooserIntent = Intent.createChooser(intent, "Open with")
-                    chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(chooserIntent)
-                }
+                context.startActivity(Intent.createChooser(intent, "Open with"))
 
             } catch (e: Exception) {
-                _errorMessage.value = "Cannot open file: ${e.message}"
-                Timber.e(e, "Error opening file: ${e.message}")
-            }
-        }
-    }
-
-    fun shareRecording(recording: RecordingFile) {
-        viewModelScope.launch {
-            try {
-                val files = mutableListOf<File>()
-
-                // Add UBX file
-                val ubxFile = File(recording.filePath)
-                if (!ubxFile.exists()) {
-                    _errorMessage.value = "Recording file not found"
-                    Timber.e("UBX file not found: ${recording.filePath}")
-                    return@launch
-                }
-                files.add(ubxFile)
-
-                // Add CSV file if exists
-                recording.csvPath?.let {
-                    val csvFile = File(it)
-                    if (csvFile.exists()) {
-                        files.add(csvFile)
-                        Timber.d("Including CSV file in share")
-                    }
-                }
-
-                val uris = ArrayList<Uri>()
-                files.forEach { file ->
-                    try {
-                        val uri = FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            file
-                        )
-                        uris.add(uri)
-                        Timber.d("Added URI for sharing: $uri")
-                    } catch (e: Exception) {
-                        Timber.e(e, "Error creating URI for file: ${file.name}")
-                    }
-                }
-
-                if (uris.isEmpty()) {
-                    _errorMessage.value = "No files available to share"
-                    Timber.e("No valid URIs for sharing")
-                    return@launch
-                }
-
-                val intent = if (uris.size == 1) {
-                    Intent(Intent.ACTION_SEND).apply {
-                        type = "*/*"
-                        putExtra(Intent.EXTRA_STREAM, uris[0])
-                        putExtra(Intent.EXTRA_SUBJECT, "GNSS Recording - ${recording.name}")
-                    }
-                } else {
-                    Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                        type = "*/*"
-                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                        putExtra(Intent.EXTRA_SUBJECT, "GNSS Recording - ${recording.name}")
-                    }
-                }
-
-                intent.apply {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-
-                val chooserIntent = Intent.createChooser(intent, "Share recording")
-                chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-                context.startActivity(chooserIntent)
-
-                Timber.d("Share intent launched successfully")
-
-            } catch (e: Exception) {
-                _errorMessage.value = "Cannot share file: ${e.message}"
-                Timber.e(e, "Error sharing file: ${e.message}")
+                Timber.e(e, "Error opening file")
             }
         }
     }
@@ -316,16 +228,9 @@ class DataViewModel @Inject constructor(
 
                 if (selected.isEmpty()) return@launch
 
-                val files = selected.flatMap { recording ->
-                    val list = mutableListOf<File>()
-                    val ubxFile = File(recording.filePath)
-                    if (ubxFile.exists()) list.add(ubxFile)
-
-                    recording.csvPath?.let {
-                        val csvFile = File(it)
-                        if (csvFile.exists()) list.add(csvFile)
-                    }
-                    list
+                val files = selected.mapNotNull { recording ->
+                    val file = File(recording.filePath)
+                    if (file.exists()) file else null
                 }
 
                 val uris = files.map { file ->
@@ -353,29 +258,6 @@ class DataViewModel @Inject constructor(
         }
     }
 
-    fun deleteRecording(recording: RecordingFile) {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    // Delete entire session directory
-                    val file = File(recording.filePath)
-                    val sessionDir = file.parentFile
-
-                    sessionDir?.deleteRecursively()
-
-                    Timber.d("Deleted recording: ${recording.name}")
-
-                    withContext(Dispatchers.Main) {
-                        loadRecordings() // Reload list
-                    }
-
-                } catch (e: Exception) {
-                    Timber.e(e, "Error deleting file")
-                }
-            }
-        }
-    }
-
     fun deleteSelected() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -385,7 +267,7 @@ class DataViewModel @Inject constructor(
                     }
 
                     selected.forEach { recording ->
-                        // Delete entire session directory
+                        // Elimina l'intera directory della sessione
                         val file = File(recording.filePath)
                         val sessionDir = file.parentFile
 
@@ -396,94 +278,13 @@ class DataViewModel @Inject constructor(
 
                     withContext(Dispatchers.Main) {
                         clearSelection()
-                        loadRecordings() // Reload list
+                        loadRecordings() // Ricarica la lista
                     }
 
                 } catch (e: Exception) {
                     Timber.e(e, "Error deleting files")
                 }
             }
-        }
-    }
-
-    fun deleteAllRecordings() {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-                    val geoSitDir = File(documentsDir, "GeoSit")
-
-                    if (geoSitDir.exists()) {
-                        val deleted = geoSitDir.deleteRecursively()
-
-                        if (deleted) {
-                            Timber.d("All recordings deleted successfully")
-                        } else {
-                            Timber.e("Failed to delete all recordings")
-                        }
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        clearSelection()
-                        loadRecordings() // Reload list (will be empty)
-                    }
-
-                } catch (e: Exception) {
-                    Timber.e(e, "Error deleting all recordings")
-                }
-            }
-        }
-    }
-
-    fun getStorageInfo(): String {
-        val documentsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-        val geoSitDir = File(documentsDir, "GeoSit")
-
-        if (!geoSitDir.exists()) {
-            return "Storage path: ${geoSitDir.absolutePath}\nNo recordings found"
-        }
-
-        var totalSize = 0L
-        var fileCount = 0
-        var sessionCount = 0
-        val fileDetails = mutableListOf<String>()
-
-        geoSitDir.listFiles()?.filter { it.isDirectory }?.forEach { sessionDir ->
-            sessionCount++
-            sessionDir.walkTopDown().forEach { file ->
-                if (file.isFile) {
-                    totalSize += file.length()
-                    fileCount++
-                    fileDetails.add("${file.name} (${formatFileSize(file.length())})")
-                }
-            }
-        }
-
-        val sizeStr = when {
-            totalSize < 1024 -> "$totalSize B"
-            totalSize < 1024 * 1024 -> "${totalSize / 1024} KB"
-            else -> String.format("%.2f MB", totalSize / (1024.0 * 1024.0))
-        }
-
-        return buildString {
-            appendLine("Storage path:")
-            appendLine(geoSitDir.absolutePath)
-            appendLine("\nSessions: $sessionCount")
-            appendLine("Total files: $fileCount")
-            appendLine("Total size: $sizeStr")
-
-            if (fileDetails.isNotEmpty() && fileDetails.size <= 10) {
-                appendLine("\nFiles:")
-                fileDetails.forEach { appendLine("• $it") }
-            }
-        }
-    }
-
-    private fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes < 1024 -> "$bytes B"
-            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            else -> String.format("%.2f MB", bytes / (1024.0 * 1024.0))
         }
     }
 }

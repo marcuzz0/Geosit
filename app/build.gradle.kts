@@ -1,8 +1,8 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.dagger.hilt.android")
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.ksp)
     id("kotlin-parcelize")
 }
 
@@ -21,15 +21,20 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Build config fields
+        buildConfigField("String", "OSM_USER_AGENT", "\"GeoSit GNSS Logger\"")
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug") // Change for production
         }
         debug {
             isMinifyEnabled = false
@@ -45,6 +50,11 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        freeCompilerArgs = listOf(
+            "-opt-in=kotlin.RequiresOptIn",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi"
+        )
     }
 
     buildFeatures {
@@ -59,92 +69,78 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/LICENSE.txt"
+            excludes += "/META-INF/NOTICE"
+            excludes += "/META-INF/NOTICE.txt"
         }
     }
 }
 
 dependencies {
     // Core Android
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    implementation("androidx.activity:activity-compose:1.8.1")
+    implementation(libs.core.ktx)
+    implementation(libs.bundles.lifecycle)
+    implementation(libs.activity.compose)
+    implementation(libs.appcompat)
+    implementation(libs.material)
+    implementation(libs.splash)
 
-    // Compose
-    implementation(platform("androidx.compose:compose-bom:2023.10.01"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.animation:animation")
+    // Compose BOM and components
+    implementation(platform(libs.compose.bom))
+    implementation(libs.bundles.compose)
 
     // Navigation
-    implementation("androidx.navigation:navigation-compose:2.7.5")
-    implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
+    implementation(libs.navigation.compose)
+    implementation(libs.hilt.navigation.compose)
 
-    // Hilt for DI
-    implementation("com.google.dagger:hilt-android:2.48")
-    ksp("com.google.dagger:hilt-compiler:2.48")
-    ksp("androidx.hilt:hilt-compiler:1.1.0")
+    // Dependency Injection - Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    ksp(libs.hilt.androidx.compiler)
 
     // Room Database
-    implementation("androidx.room:room-runtime:2.6.0")
-    implementation("androidx.room:room-ktx:2.6.0")
-    ksp("androidx.room:room-compiler:2.6.0")
+    implementation(libs.bundles.room)
+    ksp(libs.room.compiler)
 
-    // DataStore
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    // DataStore Preferences
+    implementation(libs.datastore.preferences)
 
     // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
+    implementation(libs.coroutines.android)
+    implementation(libs.coroutines.play.services)
 
     // WorkManager
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
-    implementation("androidx.hilt:hilt-work:1.1.0")
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.hilt.work)
 
-    // Permissions
-    implementation("com.google.accompanist:accompanist-permissions:0.32.0")
+    // Permissions Handling
+    implementation(libs.accompanist.permissions)
 
-    // USB Serial
-    implementation("com.github.mik3y:usb-serial-for-android:3.5.1")
+    // USB Serial Communication
+    implementation(libs.usb.serial)
 
     // Logging
-    implementation("com.jakewharton.timber:timber:5.0.1")
+    implementation(libs.timber)
 
     // Location Services
-    implementation("com.google.android.gms:play-services-location:21.0.1")
+    implementation(libs.play.services.location)
 
-    // Testing
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
+    // OSM Maps
+    implementation(libs.osmdroid)
 
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.10.01"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // Testing Dependencies
+    testImplementation(libs.bundles.testing)
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Android Testing
+    androidTestImplementation(libs.bundles.android.testing)
+    androidTestImplementation(platform(libs.compose.bom))
+    kspAndroidTest(libs.hilt.compiler)
 
-    // Material Components (for compatibility with rawX components)
-    implementation("com.google.android.material:material:1.11.0")
-
-    // AppCompat (for compatibility)
-    implementation("androidx.appcompat:appcompat:1.6.1")
-
-
-    // Core Android - FIRST
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
-
-    // Then Compose and other dependencies
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-
-
-
-
+    // Debug Dependencies
+    debugImplementation(libs.compose.ui.tooling)
+    debugImplementation(libs.compose.ui.test.manifest)
+    debugImplementation(libs.leakcanary)
 }

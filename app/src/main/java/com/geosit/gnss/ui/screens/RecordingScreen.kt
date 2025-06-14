@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.geosit.gnss.data.model.RecordingMode
+import com.geosit.gnss.data.model.StopGoAction
 import com.geosit.gnss.data.recording.RecordingRepository
 import com.geosit.gnss.ui.viewmodel.RecordingViewModel
 import kotlinx.coroutines.launch
@@ -37,10 +38,12 @@ fun RecordingScreen(
     // Mostra errori
     LaunchedEffect(recordingState.error) {
         recordingState.error?.let { error ->
-            snackbarHostState.showSnackbar(
-                message = error,
-                duration = SnackbarDuration.Short
-            )
+            if (!error.startsWith("Recording point:")) { // Ignora i messaggi di countdown
+                snackbarHostState.showSnackbar(
+                    message = error,
+                    duration = SnackbarDuration.Short
+                )
+            }
         }
     }
 
@@ -306,10 +309,19 @@ fun StopGoControlsCard(
     viewModel: RecordingViewModel,
     stopAndGoPoints: List<com.geosit.gnss.data.model.StopAndGoPoint>
 ) {
+    val stopGoState by viewModel.stopGoState.collectAsState()
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 16.dp)
+            .padding(bottom = 16.dp),
+        colors = if (stopGoState.isInStopPhase) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            )
+        } else {
+            CardDefaults.cardColors()
+        }
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -321,6 +333,36 @@ fun StopGoControlsCard(
                 fontWeight = FontWeight.Bold
             )
 
+            // Countdown display durante STOP
+            AnimatedVisibility(
+                visible = stopGoState.isInStopPhase,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut()
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(vertical = 16.dp)
+                ) {
+                    Text(
+                        "Recording Point",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        stopGoState.currentPointName,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        "${stopGoState.remainingTime}s",
+                        style = MaterialTheme.typography.displayLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(
@@ -329,8 +371,10 @@ fun StopGoControlsCard(
             ) {
                 Button(
                     onClick = { viewModel.addStopPoint() },
+                    enabled = stopGoState.canStop,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
+                        containerColor = MaterialTheme.colorScheme.error,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
                     ),
                     modifier = Modifier.weight(1f).padding(end = 8.dp)
                 ) {
@@ -341,8 +385,10 @@ fun StopGoControlsCard(
 
                 Button(
                     onClick = { viewModel.addGoPoint() },
+                    enabled = stopGoState.canGo,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
                     ),
                     modifier = Modifier.weight(1f).padding(start = 8.dp)
                 ) {
@@ -352,13 +398,29 @@ fun StopGoControlsCard(
                 }
             }
 
+            // Status text
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                when {
+                    stopGoState.isInStopPhase -> "Wait for countdown to complete..."
+                    stopGoState.canGo -> "Press GO to move to next point"
+                    stopGoState.canStop -> "Press STOP to record a point"
+                    else -> "Processing..."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             // Recent points
             if (stopAndGoPoints.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Divider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                )
                 Text(
-                    "Recent Points",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    "Points Recorded: ${stopAndGoPoints.count { it.action == StopGoAction.STOP }}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
                 )
                 stopAndGoPoints.takeLast(3).forEach { point ->
                     Text(
@@ -506,7 +568,7 @@ fun RecordingSettingsDialog(
 ) {
     var pointName by remember { mutableStateOf("") }
     var instrumentHeight by remember { mutableStateOf("") }
-    var staticDuration by remember { mutableStateOf("60") }
+    var staticDuration by remember { mutableStateOf(if (mode == RecordingMode.STOP_AND_GO) "30" else "60") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -560,13 +622,29 @@ fun RecordingSettingsDialog(
                         singleLine = true
                     )
                 }
+
+                if (mode == RecordingMode.STOP_AND_GO) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = staticDuration,
+                        onValueChange = { staticDuration = it.filter { char -> char.isDigit() } },
+                        label = { Text("Stop Duration (seconds)") },
+                        placeholder = { Text("30") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        supportingText = {
+                            Text("Time to record each stop point")
+                        }
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     val height = instrumentHeight.toDoubleOrNull() ?: 0.0
-                    val duration = staticDuration.toIntOrNull() ?: 60
+                    val duration = staticDuration.toIntOrNull() ?: if (mode == RecordingMode.STOP_AND_GO) 30 else 60
                     onConfirm(pointName, height, duration)
                 }
             ) {
