@@ -1,9 +1,6 @@
 package com.geosit.gnss.di
 
 import android.content.Context
-import com.geosit.gnss.data.connection.ConnectionManager
-import com.geosit.gnss.data.gnss.GnssDataProcessor
-import com.geosit.gnss.data.recording.RecordingRepository
 import com.geosit.gnss.data.settings.SettingsRepository
 import dagger.Module
 import dagger.Provides
@@ -22,30 +19,5 @@ object AppModule {
         @ApplicationContext context: Context
     ): SettingsRepository {
         return SettingsRepository(context)
-    }
-
-    @Provides
-    @Singleton
-    fun provideGnssDataProcessor(): GnssDataProcessor {
-        return GnssDataProcessor()
-    }
-
-    @Provides
-    @Singleton
-    fun provideConnectionManager(
-        @ApplicationContext context: Context,
-        gnssDataProcessor: GnssDataProcessor,
-        settingsRepository: SettingsRepository
-    ): ConnectionManager {
-        return ConnectionManager(context, gnssDataProcessor, settingsRepository)
-    }
-
-    @Provides
-    @Singleton
-    fun provideRecordingRepository(
-        @ApplicationContext context: Context,
-        connectionManager: ConnectionManager
-    ): RecordingRepository {
-        return RecordingRepository(context, connectionManager)
     }
 }

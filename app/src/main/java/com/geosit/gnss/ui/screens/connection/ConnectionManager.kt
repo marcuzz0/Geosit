@@ -6,7 +6,6 @@ import com.geosit.gnss.data.gnss.GnssDataProcessor
 import com.geosit.gnss.data.model.Device
 import com.geosit.gnss.data.model.displayName
 import com.geosit.gnss.data.settings.SettingsRepository
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,12 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ConnectionManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+class ConnectionManager(
+    private val context: Context,
     private val gnssDataProcessor: GnssDataProcessor,
     private val settingsRepository: SettingsRepository
 ) {

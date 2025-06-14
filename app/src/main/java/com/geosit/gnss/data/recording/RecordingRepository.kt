@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Environment
 import com.geosit.gnss.data.connection.ConnectionManager
 import com.geosit.gnss.data.model.*
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,12 +18,9 @@ import java.io.FileOutputStream
 import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.*
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class RecordingRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+class RecordingRepository(
+    private val context: Context,
     private val connectionManager: ConnectionManager
 ) {
 
