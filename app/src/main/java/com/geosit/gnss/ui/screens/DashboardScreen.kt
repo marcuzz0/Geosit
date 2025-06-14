@@ -1,12 +1,17 @@
 package com.geosit.gnss.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,7 +52,7 @@ fun DashboardScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Connection Status Card
+        // Connection Status Card with pulsing indicator
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -56,17 +61,30 @@ fun DashboardScreen(
             Column(
                 modifier = Modifier.padding(16.dp)
             ) {
-                Text(
-                    "Connection Status",
-                    style = MaterialTheme.typography.titleLarge
-                )
                 Row(
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Connection Status",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    // Pulsing connection indicator
+                    ConnectionIndicator(isConnected = connectionState.isConnected)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         if (connectionState.isConnected) "Connected" else "Not Connected",
                         style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
                         color = if (connectionState.isConnected) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -76,160 +94,93 @@ fun DashboardScreen(
                     connectionState.connectedDevice?.let { device ->
                         Text(
                             " • ${device.displayName()}",
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
         }
 
-        // Position Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
+        // Position Card - Only show when recording
+        if (recordingState.isRecording && connectionState.isConnected) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
             ) {
-                Text(
-                    "Position",
-                    style = MaterialTheme.typography.titleLarge
-                )
-
                 Column(
-                    modifier = Modifier.padding(top = 8.dp)
+                    modifier = Modifier.padding(16.dp)
                 ) {
-                    // Show coordinates even if no fix
                     Text(
-                        String.format(
-                            Locale.US,
-                            "Latitude: %.8f°",
-                            gnssPosition.latitude
-                        ),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (gnssPosition.fixType != FixType.NO_FIX) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        "GNSS Position",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        String.format(
-                            Locale.US,
-                            "Longitude: %.8f°",
-                            gnssPosition.longitude
-                        ),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (gnssPosition.fixType != FixType.NO_FIX) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Coordinates
+                    PositionRow(
+                        label = "Latitude",
+                        value = String.format(Locale.US, "%.8f°", gnssPosition.latitude)
                     )
-                    Text(
-                        String.format(
-                            Locale.US,
-                            "Altitude: %.2f m",
-                            gnssPosition.altitude
-                        ),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (gnssPosition.fixType != FixType.NO_FIX) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                    PositionRow(
+                        label = "Longitude",
+                        value = String.format(Locale.US, "%.8f°", gnssPosition.longitude)
+                    )
+                    PositionRow(
+                        label = "Altitude",
+                        value = String.format(Locale.US, "%.2f m", gnssPosition.altitude)
                     )
 
                     Divider(modifier = Modifier.padding(vertical = 8.dp))
 
-                    // Fix info row
+                    // Fix info
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Fix status with color
-                        Row {
-                            Text(
-                                "Fix: ",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                if (connectionState.isConnected && gnssPosition.fixStatus == "Waiting for GPS...") {
-                                    "No Fix"
-                                } else {
-                                    gnssPosition.fixStatus
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = when (gnssPosition.fixType) {
-                                    FixType.NO_FIX -> MaterialTheme.colorScheme.error
-                                    FixType.FIX_2D -> MaterialTheme.colorScheme.tertiary
-                                    FixType.FIX_3D -> MaterialTheme.colorScheme.primary
-                                    FixType.DGPS -> MaterialTheme.colorScheme.primary
-                                    FixType.RTK_FIXED -> Color(0xFF4CAF50) // Green
-                                    FixType.RTK_FLOAT -> Color(0xFFFFA726) // Orange
-                                }
-                            )
-                        }
-
-                        Text(
-                            "Sats: ${gnssPosition.satellitesUsed}",
-                            style = MaterialTheme.typography.bodyMedium
+                        InfoChip(
+                            label = "Fix",
+                            value = gnssPosition.fixStatus,
+                            color = when (gnssPosition.fixType) {
+                                FixType.NO_FIX -> MaterialTheme.colorScheme.error
+                                FixType.FIX_2D -> MaterialTheme.colorScheme.tertiary
+                                FixType.FIX_3D -> MaterialTheme.colorScheme.primary
+                                FixType.DGPS -> MaterialTheme.colorScheme.primary
+                                FixType.RTK_FIXED -> Color(0xFF4CAF50)
+                                FixType.RTK_FLOAT -> Color(0xFFFFA726)
+                            }
                         )
 
-                        Text(
-                            String.format("HDOP: %.1f", gnssPosition.hdop),
-                            style = MaterialTheme.typography.bodyMedium,
+                        InfoChip(
+                            label = "Sats",
+                            value = "${gnssPosition.satellitesUsed}",
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        InfoChip(
+                            label = "HDOP",
+                            value = String.format("%.1f", gnssPosition.hdop),
                             color = when {
-                                gnssPosition.hdop <= 1.0 -> Color(0xFF4CAF50) // Excellent
-                                gnssPosition.hdop <= 2.0 -> MaterialTheme.colorScheme.primary // Good
-                                gnssPosition.hdop <= 5.0 -> Color(0xFFFFA726) // Moderate
-                                else -> MaterialTheme.colorScheme.error // Poor
+                                gnssPosition.hdop <= 1.0 -> Color(0xFF4CAF50)
+                                gnssPosition.hdop <= 2.0 -> MaterialTheme.colorScheme.primary
+                                gnssPosition.hdop <= 5.0 -> Color(0xFFFFA726)
+                                else -> MaterialTheme.colorScheme.error
                             }
                         )
                     }
 
                     // Additional info if available
-                    if (gnssPosition.satellitesInView > 0) {
-                        Text(
-                            "Satellites in view: ${gnssPosition.satellitesInView}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-
-                    // Accuracy if available
                     if (gnssPosition.horizontalAccuracy > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             String.format(
                                 Locale.US,
-                                "Estimated accuracy: ±%.1f m",
+                                "Accuracy: ±%.1f m",
                                 gnssPosition.horizontalAccuracy
                             ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Speed if moving
-                    if (gnssPosition.speedMs > 0.5) { // Show speed if > 0.5 m/s
-                        Text(
-                            String.format(
-                                Locale.US,
-                                "Speed: %.1f km/h (%.1f m/s)",
-                                gnssPosition.speedMs * 3.6,
-                                gnssPosition.speedMs
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // UTC time if available
-                    if (gnssPosition.utcTime.isNotEmpty()) {
-                        Text(
-                            "GPS Time: ${gnssPosition.utcTime}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -256,12 +207,14 @@ fun DashboardScreen(
             ) {
                 Text(
                     "Recording Status",
-                    style = MaterialTheme.typography.titleLarge
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 if (recordingState.isRecording) {
                     Row(
-                        modifier = Modifier.padding(top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -280,41 +233,131 @@ fun DashboardScreen(
 
                     // Recording details
                     recordingState.currentSession?.let { session ->
-                        Column(
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            Text(
-                                "Mode: ${session.mode.name.replace('_', ' ')}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            if (session.pointName.isNotEmpty()) {
-                                Text(
-                                    "Name: ${session.pointName}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                            Text(
-                                "Duration: ${recordingViewModel.getRecordingDuration()}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                "Size: ${recordingViewModel.getRecordingSize()}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        RecordingInfoRow(
+                            label = "Mode",
+                            value = session.mode.name.replace('_', ' ')
+                        )
+
+                        if (session.pointName.isNotEmpty()) {
+                            RecordingInfoRow(
+                                label = "Name",
+                                value = session.pointName
                             )
                         }
+
+                        RecordingInfoRow(
+                            label = "Duration",
+                            value = recordingViewModel.getRecordingDuration()
+                        )
+
+                        RecordingInfoRow(
+                            label = "Size",
+                            value = recordingViewModel.getRecordingSize()
+                        )
                     }
                 } else {
                     Text(
                         "Not Recording",
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(top = 8.dp)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ConnectionIndicator(isConnected: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition()
+
+    val animatedAlpha by infiniteTransition.animateFloat(
+        initialValue = if (isConnected) 0.3f else 1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    val color by animateColorAsState(
+        targetValue = if (isConnected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.error
+        }
+    )
+
+    Box(
+        modifier = Modifier
+            .size(12.dp)
+            .clip(CircleShape)
+            .background(
+                color.copy(alpha = if (isConnected) animatedAlpha else 1f)
+            )
+    )
+}
+
+@Composable
+fun PositionRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun InfoChip(label: String, value: String, color: Color) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+    }
+}
+
+@Composable
+fun RecordingInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            fontWeight = FontWeight.Medium
+        )
     }
 }

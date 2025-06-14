@@ -570,6 +570,11 @@ fun RecordingSettingsDialog(
     var instrumentHeight by remember { mutableStateOf("") }
     var staticDuration by remember { mutableStateOf(if (mode == RecordingMode.STOP_AND_GO) "30" else "60") }
 
+    // Validation states
+    var pointNameError by remember { mutableStateOf(false) }
+    var instrumentHeightError by remember { mutableStateOf(false) }
+    var staticDurationError by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -585,29 +590,43 @@ fun RecordingSettingsDialog(
             Column {
                 OutlinedTextField(
                     value = pointName,
-                    onValueChange = { pointName = it },
+                    onValueChange = {
+                        pointName = it
+                        pointNameError = false
+                    },
                     label = {
                         Text(
                             when (mode) {
-                                RecordingMode.STATIC -> "Point Name"
-                                RecordingMode.KINEMATIC -> "Track Name"
-                                RecordingMode.STOP_AND_GO -> "Session Name"
+                                RecordingMode.STATIC -> "Point Name *"
+                                RecordingMode.KINEMATIC -> "Track Name *"
+                                RecordingMode.STOP_AND_GO -> "Session Name *"
                             }
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    isError = pointNameError,
+                    supportingText = if (pointNameError) {
+                        { Text("This field is required") }
+                    } else null
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
                     value = instrumentHeight,
-                    onValueChange = { instrumentHeight = it.filter { char -> char.isDigit() || char == '.' } },
-                    label = { Text("Instrument Height (m)") },
+                    onValueChange = {
+                        instrumentHeight = it.filter { char -> char.isDigit() || char == '.' }
+                        instrumentHeightError = false
+                    },
+                    label = { Text("Instrument Height (m) *") },
                     placeholder = { Text("0.0") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    isError = instrumentHeightError,
+                    supportingText = if (instrumentHeightError) {
+                        { Text("Please enter a valid height") }
+                    } else null
                 )
 
                 if (mode == RecordingMode.STATIC) {
@@ -615,11 +634,18 @@ fun RecordingSettingsDialog(
 
                     OutlinedTextField(
                         value = staticDuration,
-                        onValueChange = { staticDuration = it.filter { char -> char.isDigit() } },
-                        label = { Text("Duration (seconds)") },
+                        onValueChange = {
+                            staticDuration = it.filter { char -> char.isDigit() }
+                            staticDurationError = false
+                        },
+                        label = { Text("Duration (seconds) *") },
                         placeholder = { Text("60") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = staticDurationError,
+                        supportingText = if (staticDurationError) {
+                            { Text("Please enter a valid duration (min 10s)") }
+                        } else null
                     )
                 }
 
@@ -628,24 +654,64 @@ fun RecordingSettingsDialog(
 
                     OutlinedTextField(
                         value = staticDuration,
-                        onValueChange = { staticDuration = it.filter { char -> char.isDigit() } },
-                        label = { Text("Stop Duration (seconds)") },
+                        onValueChange = {
+                            staticDuration = it.filter { char -> char.isDigit() }
+                            staticDurationError = false
+                        },
+                        label = { Text("Stop Duration (seconds) *") },
                         placeholder = { Text("30") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        isError = staticDurationError,
                         supportingText = {
-                            Text("Time to record each stop point")
+                            if (staticDurationError) {
+                                Text("Please enter a valid duration (min 10s)")
+                            } else {
+                                Text("Time to record each stop point")
+                            }
                         }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    "* Required fields",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    val height = instrumentHeight.toDoubleOrNull() ?: 0.0
-                    val duration = staticDuration.toIntOrNull() ?: if (mode == RecordingMode.STOP_AND_GO) 30 else 60
-                    onConfirm(pointName, height, duration)
+                    // Validate fields
+                    var hasError = false
+
+                    if (pointName.isBlank()) {
+                        pointNameError = true
+                        hasError = true
+                    }
+
+                    val height = instrumentHeight.toDoubleOrNull()
+                    if (height == null || height < 0) {
+                        instrumentHeightError = true
+                        hasError = true
+                    }
+
+                    val duration = staticDuration.toIntOrNull()
+                    if (duration == null || duration < 10) {
+                        staticDurationError = true
+                        hasError = true
+                    }
+
+                    if (!hasError) {
+                        onConfirm(
+                            pointName.trim(),
+                            height!!,
+                            duration!!
+                        )
+                    }
                 }
             ) {
                 Text("Start")

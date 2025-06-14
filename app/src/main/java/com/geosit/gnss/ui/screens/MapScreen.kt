@@ -1,6 +1,7 @@
 package com.geosit.gnss.ui.screens
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.geosit.gnss.data.gnss.FixType
 import com.geosit.gnss.ui.viewmodel.DashboardViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -30,6 +32,7 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import timber.log.Timber
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -52,7 +55,7 @@ fun MapScreen(
     val trackPoints = remember { mutableListOf<GeoPoint>() }
 
     // Location permission
-    val locationPermission = rememberPermissionState(
+    val locationPermissionState = rememberPermissionState(
         permission = Manifest.permission.ACCESS_FINE_LOCATION
     )
 
@@ -131,7 +134,7 @@ fun MapScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (locationPermission.hasPermission) {
+            if (locationPermissionState.status.isGranted) {
                 AndroidView(
                     factory = { ctx ->
                         MapView(ctx).apply {
@@ -331,7 +334,7 @@ fun MapScreen(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                     Button(
-                        onClick = { locationPermission.launchPermissionRequest() },
+                        onClick = { locationPermissionState.launchPermissionRequest() },
                         modifier = Modifier.padding(top = 16.dp)
                     ) {
                         Text("Grant Permission")

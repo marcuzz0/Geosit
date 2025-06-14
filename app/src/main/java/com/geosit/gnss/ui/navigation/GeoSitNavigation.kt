@@ -20,9 +20,10 @@ sealed class Screen(
     val title: String,
     val icon: ImageVector
 ) {
-    object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
+    object Dashboard : Screen("dashboard", "Dash", Icons.Default.Dashboard)
     object Connection : Screen("connection", "Connect", Icons.Default.BluetoothSearching)
     object Recording : Screen("recording", "Record", Icons.Default.FiberManualRecord)
+    object Map : Screen("map", "Map", Icons.Default.Map)
     object Data : Screen("data", "Data", Icons.Default.Storage)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
@@ -35,6 +36,7 @@ fun GeoSitNavigation() {
         Screen.Dashboard,
         Screen.Connection,
         Screen.Recording,
+        Screen.Map,
         Screen.Data,
         Screen.Settings
     )
@@ -44,7 +46,7 @@ fun GeoSitNavigation() {
             NavigationBar {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
-                
+
                 screens.forEach { screen ->
                     NavigationBarItem(
                         icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -72,6 +74,7 @@ fun GeoSitNavigation() {
             composable(Screen.Dashboard.route) { DashboardScreen() }
             composable(Screen.Connection.route) { ConnectionScreen() }
             composable(Screen.Recording.route) { RecordingScreen() }
+            composable(Screen.Map.route) { MapScreen() }
             composable(Screen.Data.route) { DataScreen() }
             composable(Screen.Settings.route) { SettingsScreen() }
         }

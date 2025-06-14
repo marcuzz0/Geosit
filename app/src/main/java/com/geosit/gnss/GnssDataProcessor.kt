@@ -62,9 +62,7 @@ class GnssDataProcessor @Inject constructor() {
 
     private val parser = GnssDataParser()
 
-    private val _currentPosition = MutableStateFlow(GnssPosition(
-        fixStatus = "Waiting for GPS..."
-    ))
+    private val _currentPosition = MutableStateFlow(GnssPosition())
     val currentPosition: StateFlow<GnssPosition> = _currentPosition.asStateFlow()
 
     private val _satellites = MutableStateFlow<List<SatelliteInfo>>(emptyList())

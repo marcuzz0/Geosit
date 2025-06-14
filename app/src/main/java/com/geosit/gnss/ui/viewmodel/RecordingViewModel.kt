@@ -170,6 +170,26 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
+    fun interruptStopCountdown() {
+        if (!_stopGoState.value.isInStopPhase || _stopGoState.value.remainingTime == 0) {
+            return // Not in countdown or already completed
+        }
+
+        viewModelScope.launch {
+            // Cancel the countdown
+            stopGoTimerJob?.cancel()
+
+            // Enable GO button immediately
+            _stopGoState.value = _stopGoState.value.copy(
+                remainingTime = 0,
+                canStop = false,
+                canGo = true
+            )
+
+            Timber.d("Stop countdown interrupted at ${_stopGoState.value.remainingTime}s")
+        }
+    }
+
     fun addGoPoint() {
         if (!_stopGoState.value.isInStopPhase || !_stopGoState.value.canGo) {
             return
