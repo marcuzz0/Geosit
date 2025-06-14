@@ -1,18 +1,23 @@
 package com.geosit.gnss.ui.screens
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -20,7 +25,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.geosit.gnss.data.gnss.FixType
-import com.geosit.gnss.ui.viewmodel.DashboardViewModel
+import com.geosit.gnss.data.model.RecordingMode
+import com.geosit.gnss.data.model.StopGoAction
+import com.geosit.gnss.ui.viewmodel.RecordingViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -37,22 +44,29 @@ import timber.log.Timber
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun MapScreen(
-    viewModel: DashboardViewModel = hiltViewModel()
+    viewModel: RecordingViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val gnssPosition by viewModel.gnssPosition.collectAsState()
+    val recordingState by viewModel.recordingState.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
+    val stopGoState by viewModel.stopGoState.collectAsState()
 
     var mapView by remember { mutableStateOf<MapView?>(null) }
-    var positionMarker by remember { mutableStateOf<Marker?>(null) }
-    var trackPolyline by remember { mutableStateOf<Polyline?>(null) }
-    var isTracking by remember { mutableStateOf(false) }
     var showMapTypes by remember { mutableStateOf(false) }
+    var selectedMode by remember { mutableStateOf(RecordingMode.STATIC) }
+    var showRecordingDialog by remember { mutableStateOf(false) }
+    var isMapExpanded by remember { mutableStateOf(false) }
 
-    // Track points for polyline
-    val trackPoints = remember { mutableListOf<GeoPoint>() }
+    // Current position marker (always visible when connected)
+    var currentPositionMarker by remember { mutableStateOf<Marker?>(null) }
+
+    // Tracking elements
+    val kinematicPoints = remember { mutableListOf<GeoPoint>() }
+    val stopGoMarkers = remember { mutableStateMapOf<String, Marker>() }
+    val stopGoPoints = remember { mutableListOf<GeoPoint>() }
 
     // Location permission
     val locationPermissionState = rememberPermissionState(
@@ -79,10 +93,34 @@ fun MapScreen(
         }
     }
 
+    // Clear recording overlays when recording stops (but keep position marker)
+    LaunchedEffect(recordingState.isRecording) {
+        if (!recordingState.isRecording) {
+            mapView?.let { map ->
+                // Remove only recording-related overlays, keep position marker
+                map.overlays.removeAll { overlay ->
+                    overlay is Polyline || (overlay is Marker && overlay != currentPositionMarker)
+                }
+                kinematicPoints.clear()
+                stopGoMarkers.clear()
+                stopGoPoints.clear()
+                map.invalidate()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Map View") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Map View")
+                        if (recordingState.isRecording) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            RecordingIndicator()
+                        }
+                    }
+                },
                 actions = {
                     // Map type selector
                     IconButton(onClick = { showMapTypes = !showMapTypes }) {
@@ -105,24 +143,13 @@ fun MapScreen(
                         Icon(Icons.Default.MyLocation, contentDescription = "Center")
                     }
 
-                    // Track toggle
+                    // Expand/Collapse controls
                     IconButton(
-                        onClick = {
-                            isTracking = !isTracking
-                            if (!isTracking) {
-                                trackPoints.clear()
-                                trackPolyline?.let {
-                                    mapView?.overlays?.remove(it)
-                                    mapView?.invalidate()
-                                }
-                            }
-                        },
-                        enabled = connectionState.isConnected
+                        onClick = { isMapExpanded = !isMapExpanded }
                     ) {
                         Icon(
-                            if (isTracking) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = if (isTracking) "Stop Tracking" else "Start Tracking",
-                            tint = if (isTracking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            if (isMapExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isMapExpanded) "Collapse" else "Expand"
                         )
                     }
                 }
@@ -151,62 +178,39 @@ fun MapScreen(
                             }
                             controller.setCenter(startPoint)
 
-                            // Add my location overlay
-                            if (ContextCompat.checkSelfPermission(
-                                    ctx,
-                                    Manifest.permission.ACCESS_FINE_LOCATION
-                                ) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                val myLocationOverlay = MyLocationNewOverlay(
-                                    GpsMyLocationProvider(ctx),
-                                    this
-                                )
-                                myLocationOverlay.enableMyLocation()
-                                overlays.add(myLocationOverlay)
-                            }
-
                             mapView = this
                         }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Update position marker
-                LaunchedEffect(gnssPosition) {
-                    if (gnssPosition.fixType != FixType.NO_FIX) {
+                // Always update position marker when connected
+                LaunchedEffect(gnssPosition, connectionState) {
+                    if (connectionState.isConnected && gnssPosition.fixType != FixType.NO_FIX) {
                         mapView?.let { map ->
                             val position = GeoPoint(gnssPosition.latitude, gnssPosition.longitude)
 
-                            // Update or create marker
-                            if (positionMarker == null) {
-                                positionMarker = Marker(map).apply {
-                                    title = "GNSS Position"
-                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                    map.overlays.add(this)
+                            // Update current position marker
+                            if (currentPositionMarker == null) {
+                                currentPositionMarker = Marker(map).apply {
+                                    title = "Current Position"
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                                    // Use a different icon for current position
+                                    setTextIcon("⊕")
+                                    map.overlays.add(0, this) // Add at bottom
                                 }
                             }
 
-                            positionMarker?.apply {
-                                this.position = position
-                                snippet = "Fix: ${gnssPosition.fixStatus}\n" +
-                                        "Accuracy: ±${String.format("%.1f", gnssPosition.horizontalAccuracy)}m\n" +
-                                        "Satellites: ${gnssPosition.satellitesUsed}"
-                            }
+                            currentPositionMarker?.position = position
 
-                            // Add to track if tracking
-                            if (isTracking) {
-                                trackPoints.add(position)
-
-                                // Update or create polyline
-                                if (trackPolyline == null) {
-                                    trackPolyline = Polyline().apply {
-                                        outlinePaint.color = Color.BLUE
-                                        outlinePaint.strokeWidth = 5f
-                                        map.overlays.add(0, this) // Add below markers
-                                    }
+                            // Update recording overlays if recording
+                            if (recordingState.isRecording) {
+                                when (recordingState.recordingMode) {
+                                    RecordingMode.STATIC -> updateStaticMode(map, position, gnssPosition.fixType)
+                                    RecordingMode.KINEMATIC -> updateKinematicMode(map, position, kinematicPoints)
+                                    RecordingMode.STOP_AND_GO -> updateStopGoMode(map, position, recordingState, stopGoMarkers, stopGoPoints)
+                                    null -> {}
                                 }
-
-                                trackPolyline?.setPoints(trackPoints.toList())
                             }
 
                             map.invalidate()
@@ -214,64 +218,182 @@ fun MapScreen(
                     }
                 }
 
-                // Position info overlay
-                Card(
+                // Recording controls overlay
+                AnimatedVisibility(
+                    visible = isMapExpanded || !recordingState.isRecording,
+                    enter = slideInVertically() + fadeIn(),
+                    exit = slideOutVertically() + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        colors = if (recordingState.isRecording) {
+                            CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        } else {
+                            CardDefaults.cardColors()
+                        }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            if (!recordingState.isRecording) {
+                                // Mode selection
+                                Text(
+                                    "Recording Mode",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    RecordingModeChip(
+                                        selected = selectedMode == RecordingMode.STATIC,
+                                        onClick = { selectedMode = RecordingMode.STATIC },
+                                        label = "Static",
+                                        icon = Icons.Default.LocationOn
+                                    )
+                                    RecordingModeChip(
+                                        selected = selectedMode == RecordingMode.KINEMATIC,
+                                        onClick = { selectedMode = RecordingMode.KINEMATIC },
+                                        label = "Kinematic",
+                                        icon = Icons.Default.DirectionsRun
+                                    )
+                                    RecordingModeChip(
+                                        selected = selectedMode == RecordingMode.STOP_AND_GO,
+                                        onClick = { selectedMode = RecordingMode.STOP_AND_GO },
+                                        label = "Stop&Go",
+                                        icon = Icons.Default.PauseCircleOutline
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Start button
+                                Button(
+                                    onClick = { showRecordingDialog = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = connectionState.isConnected
+                                ) {
+                                    Icon(Icons.Default.FiberManualRecord, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Start Recording")
+                                }
+                            } else {
+                                // Recording status
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            "Recording ${recordingState.recordingMode?.name?.replace('_', ' ')}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            viewModel.getRecordingDuration(),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = { viewModel.stopRecording() },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.error
+                                        )
+                                    ) {
+                                        Icon(Icons.Default.Stop, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Stop")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Stop&Go controls overlay
+                AnimatedVisibility(
+                    visible = recordingState.isRecording &&
+                            recordingState.recordingMode == RecordingMode.STOP_AND_GO,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = if (isMapExpanded) 140.dp else 8.dp)
+                ) {
+                    StopGoControlsCompact(
+                        stopGoState = stopGoState,
+                        onStop = { viewModel.addStopPoint() },
+                        onGo = { viewModel.addGoPoint() }
+                    )
+                }
+
+                // Position info overlay - always visible when connected
+                AnimatedVisibility(
+                    visible = connectionState.isConnected,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp)
-                        .fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        Column(
+                            modifier = Modifier.padding(12.dp)
                         ) {
-                            Text(
-                                "Fix: ${gnssPosition.fixStatus}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = when (gnssPosition.fixType) {
-                                    FixType.NO_FIX -> MaterialTheme.colorScheme.error
-                                    FixType.FIX_2D -> MaterialTheme.colorScheme.tertiary
-                                    else -> MaterialTheme.colorScheme.primary
-                                }
-                            )
-                            Text(
-                                "Sats: ${gnssPosition.satellitesUsed}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-
-                        if (gnssPosition.fixType != FixType.NO_FIX) {
-                            Text(
-                                String.format(
-                                    "%.8f°, %.8f° • %.1fm",
-                                    gnssPosition.latitude,
-                                    gnssPosition.longitude,
-                                    gnssPosition.altitude
-                                ),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-
-                            if (gnssPosition.speedMs > 0.5) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Text(
-                                    String.format(
-                                        "Speed: %.1f km/h • Course: %.0f°",
-                                        gnssPosition.speedMs * 3.6,
-                                        gnssPosition.course
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall
+                                    "Fix: ${gnssPosition.fixStatus}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = when (gnssPosition.fixType) {
+                                        FixType.NO_FIX -> MaterialTheme.colorScheme.error
+                                        FixType.FIX_2D -> MaterialTheme.colorScheme.tertiary
+                                        else -> MaterialTheme.colorScheme.primary
+                                    }
+                                )
+                                Text(
+                                    "Sats: ${gnssPosition.satellitesUsed}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    "HDOP: ${String.format("%.1f", gnssPosition.hdop)}",
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                        }
 
-                        if (isTracking && trackPoints.isNotEmpty()) {
-                            Text(
-                                "Tracking: ${trackPoints.size} points",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
+                            if (gnssPosition.fixType != FixType.NO_FIX) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        String.format("%.8f°", gnssPosition.latitude),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        String.format("%.8f°", gnssPosition.longitude),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        String.format("%.1fm", gnssPosition.altitude),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -292,8 +414,6 @@ fun MapScreen(
                     DropdownMenuItem(
                         text = { Text("Satellite") },
                         onClick = {
-                            // Note: For satellite imagery, you might need additional setup
-                            // or use a different tile source
                             mapView?.setTileSource(TileSourceFactory.MAPNIK)
                             showMapTypes = false
                         }
@@ -327,12 +447,6 @@ fun MapScreen(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(top = 16.dp)
                     )
-                    Text(
-                        "Please grant location permission to view the map",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
                     Button(
                         onClick = { locationPermissionState.launchPermissionRequest() },
                         modifier = Modifier.padding(top = 16.dp)
@@ -343,4 +457,318 @@ fun MapScreen(
             }
         }
     }
+
+    // Recording settings dialog
+    if (showRecordingDialog) {
+        RecordingSettingsDialog(
+            mode = selectedMode,
+            onDismiss = { showRecordingDialog = false },
+            onConfirm = { pointName, instrumentHeight, staticDuration ->
+                viewModel.startRecording(
+                    mode = selectedMode,
+                    pointName = pointName,
+                    instrumentHeight = instrumentHeight,
+                    staticDuration = staticDuration
+                )
+                showRecordingDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun RecordingIndicator() {
+    val infiniteTransition = rememberInfiniteTransition()
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    Box(
+        modifier = Modifier
+            .size(12.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.error.copy(alpha = alpha))
+    )
+}
+
+@Composable
+fun StopGoControlsCompact(
+    stopGoState: RecordingViewModel.StopGoState,
+    onStop: () -> Unit,
+    onGo: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = if (stopGoState.isInStopPhase) {
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            )
+        } else {
+            CardDefaults.cardColors()
+        }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (stopGoState.isInStopPhase) {
+                // Countdown display
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        stopGoState.currentPointName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "${stopGoState.remainingTime}s",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            Button(
+                onClick = onStop,
+                enabled = stopGoState.canStop,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Stop")
+            }
+
+            Button(
+                onClick = onGo,
+                enabled = stopGoState.canGo,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Go")
+            }
+        }
+    }
+}
+
+@Composable
+fun RecordingModeChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(label, style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        modifier = Modifier.height(32.dp)
+    )
+}
+
+// Update functions for different modes
+private fun updateStaticMode(map: MapView, position: GeoPoint, fixType: FixType) {
+    // Static marker (different from current position marker)
+    var marker = map.overlays.filterIsInstance<Marker>().find { it.title == "Static Point" }
+
+    if (marker == null) {
+        marker = Marker(map).apply {
+            title = "Static Point"
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            map.overlays.add(this)
+        }
+    }
+
+    marker.apply {
+        this.position = position
+
+        // Color based on fix quality
+        when (fixType) {
+            FixType.NO_FIX -> setTextIcon("●")
+            FixType.FIX_2D -> setTextIcon("▲")
+            FixType.FIX_3D, FixType.DGPS -> setTextIcon("●")
+            FixType.RTK_FIXED -> setTextIcon("◆")
+            FixType.RTK_FLOAT -> setTextIcon("◇")
+        }
+    }
+}
+
+private fun updateKinematicMode(map: MapView, position: GeoPoint, points: MutableList<GeoPoint>) {
+    // Add point to track
+    points.add(position)
+
+    // Find or create polyline
+    var polyline = map.overlays.filterIsInstance<Polyline>().firstOrNull()
+
+    if (polyline == null) {
+        polyline = Polyline().apply {
+            outlinePaint.color = Color.BLUE
+            outlinePaint.strokeWidth = 5f
+            map.overlays.add(0, this) // Add below markers
+        }
+    }
+
+    polyline.setPoints(points.toList())
+}
+
+private fun updateStopGoMode(
+    map: MapView,
+    position: GeoPoint,
+    recordingState: com.geosit.gnss.data.recording.RecordingRepository.RecordingState,
+    markers: MutableMap<String, Marker>,
+    points: MutableList<GeoPoint>
+) {
+    // Update track polyline
+    var polyline = map.overlays.filterIsInstance<Polyline>().firstOrNull()
+
+    if (polyline == null) {
+        polyline = Polyline().apply {
+            outlinePaint.color = Color.BLUE
+            outlinePaint.strokeWidth = 5f
+            map.overlays.add(0, this) // Add below markers
+        }
+    }
+
+    // Always update track
+    points.add(position)
+    polyline.setPoints(points.toList())
+
+    // Update Stop markers
+    recordingState.stopAndGoPoints.filter { it.action == StopGoAction.STOP }.forEach { point ->
+        val markerId = point.name
+
+        if (!markers.containsKey(markerId)) {
+            val marker = Marker(map).apply {
+                title = point.name
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                setTextIcon(point.id.toString())
+                map.overlays.add(this)
+            }
+            markers[markerId] = marker
+
+            // Position at last known location when point was created
+            marker.position = position
+        }
+    }
+}
+
+// Recording Settings Dialog (simplified version for map)
+@Composable
+private fun RecordingSettingsDialog(
+    mode: RecordingMode,
+    onDismiss: () -> Unit,
+    onConfirm: (pointName: String, instrumentHeight: Double, staticDuration: Int) -> Unit
+) {
+    var pointName by remember { mutableStateOf("") }
+    var instrumentHeight by remember { mutableStateOf("") }
+    var staticDuration by remember { mutableStateOf(if (mode == RecordingMode.STOP_AND_GO) "30" else "60") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when (mode) {
+                    RecordingMode.STATIC -> "Static Recording"
+                    RecordingMode.KINEMATIC -> "Kinematic Recording"
+                    RecordingMode.STOP_AND_GO -> "Stop & Go Recording"
+                }
+            )
+        },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = pointName,
+                    onValueChange = { pointName = it },
+                    label = {
+                        Text(
+                            when (mode) {
+                                RecordingMode.STATIC -> "Point Name"
+                                RecordingMode.KINEMATIC -> "Track Name"
+                                RecordingMode.STOP_AND_GO -> "Session Name"
+                            }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = instrumentHeight,
+                    onValueChange = {
+                        instrumentHeight = it.filter { char -> char.isDigit() || char == '.' }
+                    },
+                    label = { Text("Instrument Height (m)") },
+                    placeholder = { Text("0.0") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                if (mode == RecordingMode.STATIC || mode == RecordingMode.STOP_AND_GO) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = staticDuration,
+                        onValueChange = {
+                            staticDuration = it.filter { char -> char.isDigit() }
+                        },
+                        label = {
+                            Text(if (mode == RecordingMode.STATIC) "Duration (seconds)" else "Stop Duration (seconds)")
+                        },
+                        placeholder = { Text(if (mode == RecordingMode.STATIC) "60" else "30") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val height = instrumentHeight.toDoubleOrNull() ?: 0.0
+                    val duration = staticDuration.toIntOrNull() ?: 60
+
+                    onConfirm(
+                        pointName.ifEmpty { "Point_${System.currentTimeMillis()}" },
+                        height,
+                        duration
+                    )
+                }
+            ) {
+                Text("Start")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

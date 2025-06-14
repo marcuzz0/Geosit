@@ -20,7 +20,8 @@ import javax.inject.Singleton
 @Singleton
 class ConnectionManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val gnssDataProcessor: GnssDataProcessor
+    private val gnssDataProcessor: GnssDataProcessor,
+    private val settingsRepository: SettingsRepository
 ) {
 
     data class ConnectionState(

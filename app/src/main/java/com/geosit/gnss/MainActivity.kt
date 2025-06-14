@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    GeoSitApp()
+                    GeoSitNavigation()
                 }
             }
         }
@@ -36,5 +36,5 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun GeoSitApp() {
-    GeoSitNavigation()
+    GeoSitApp()
 }

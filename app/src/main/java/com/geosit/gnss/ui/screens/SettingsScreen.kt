@@ -1,9 +1,13 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.geosit.gnss.ui.screens
 
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -13,18 +17,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.geosit.gnss.ui.viewmodel.SettingsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
     val context = LocalContext.current
-    var enableSound by remember { mutableStateOf(true) }
-    var enableVibration by remember { mutableStateOf(false) }
-    var enableNotifications by remember { mutableStateOf(true) }
+
+    val recordingSettings by viewModel.recordingSettings.collectAsState()
+    val gnssSettings by viewModel.gnssSettings.collectAsState()
+    val notificationSettings by viewModel.notificationSettings.collectAsState()
+
+    val scrollState = rememberScrollState()
+
+    // Dialogs
+    var showStaticDurationDialog by remember { mutableStateOf(false) }
+    var showStopGoDurationDialog by remember { mutableStateOf(false) }
+    var showAutoSaveDialog by remember { mutableStateOf(false) }
+    var showNavigationRateDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
         TopAppBar(
@@ -61,24 +78,24 @@ fun SettingsScreen() {
                 SettingSwitch(
                     title = "Enable Notifications",
                     subtitle = "Show recording status in notification bar",
-                    checked = enableNotifications,
-                    onCheckedChange = { enableNotifications = it }
+                    checked = notificationSettings.enableNotifications,
+                    onCheckedChange = viewModel::updateNotifications
                 )
 
                 SettingSwitch(
                     title = "Sound Alerts",
                     subtitle = "Play sound for important events",
-                    checked = enableSound,
-                    onCheckedChange = { enableSound = it },
-                    enabled = enableNotifications
+                    checked = notificationSettings.enableSound,
+                    onCheckedChange = viewModel::updateNotificationSound,
+                    enabled = notificationSettings.enableNotifications
                 )
 
                 SettingSwitch(
                     title = "Vibration",
                     subtitle = "Vibrate for alerts",
-                    checked = enableVibration,
-                    onCheckedChange = { enableVibration = it },
-                    enabled = enableNotifications
+                    checked = notificationSettings.enableVibration,
+                    onCheckedChange = viewModel::updateNotificationVibration,
+                    enabled = notificationSettings.enableNotifications
                 )
             }
         }
@@ -102,20 +119,95 @@ fun SettingsScreen() {
 
                 SettingItem(
                     title = "Default Static Duration",
-                    subtitle = "60 seconds",
-                    onClick = { /* TODO: Implement duration picker */ }
+                    subtitle = "${recordingSettings.staticDuration} seconds",
+                    onClick = { showStaticDurationDialog = true }
                 )
 
                 SettingItem(
                     title = "Default Stop & Go Duration",
-                    subtitle = "30 seconds",
-                    onClick = { /* TODO: Implement duration picker */ }
+                    subtitle = "${recordingSettings.stopGoDuration} seconds",
+                    onClick = { showStopGoDurationDialog = true }
                 )
 
                 SettingItem(
-                    title = "Auto-save interval",
-                    subtitle = "Every 5 minutes",
-                    onClick = { /* TODO: Implement interval picker */ }
+                    title = "Navigation Rate",
+                    subtitle = "${recordingSettings.navigationRate} Hz",
+                    onClick = { showNavigationRateDialog = true }
+                )
+
+                SettingItem(
+                    title = "Auto-save Interval",
+                    subtitle = if (recordingSettings.autoSaveInterval > 0) "Every ${recordingSettings.autoSaveInterval} minutes" else "Disabled",
+                    onClick = { showAutoSaveDialog = true }
+                )
+
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                SettingSwitch(
+                    title = "Enable Raw Data (UBX)",
+                    subtitle = "Record raw UBX messages for post-processing",
+                    checked = recordingSettings.enableRawData,
+                    onCheckedChange = viewModel::updateEnableRawData
+                )
+
+                SettingSwitch(
+                    title = "High Precision Mode",
+                    subtitle = "Enable RTK/PPP messages if available",
+                    checked = recordingSettings.enableHighPrecision,
+                    onCheckedChange = viewModel::updateEnableHighPrecision
+                )
+            }
+        }
+
+        // GNSS Configuration
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(
+                    "GNSS Configuration",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    "Satellite Systems",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+
+                SettingSwitch(
+                    title = "GPS",
+                    subtitle = "USA satellite system",
+                    checked = gnssSettings.useGPS,
+                    onCheckedChange = { viewModel.updateGnssSystem("GPS", it) }
+                )
+
+                SettingSwitch(
+                    title = "GLONASS",
+                    subtitle = "Russian satellite system",
+                    checked = gnssSettings.useGLONASS,
+                    onCheckedChange = { viewModel.updateGnssSystem("GLONASS", it) }
+                )
+
+                SettingSwitch(
+                    title = "Galileo",
+                    subtitle = "European satellite system",
+                    checked = gnssSettings.useGalileo,
+                    onCheckedChange = { viewModel.updateGnssSystem("GALILEO", it) }
+                )
+
+                SettingSwitch(
+                    title = "BeiDou",
+                    subtitle = "Chinese satellite system",
+                    checked = gnssSettings.useBeidou,
+                    onCheckedChange = { viewModel.updateGnssSystem("BEIDOU", it) }
                 )
             }
         }
@@ -225,6 +317,58 @@ fun SettingsScreen() {
                 )
             }
         }
+
+        // Extra padding at the bottom for navigation bar
+        Spacer(modifier = Modifier.height(80.dp))
+    }
+
+    // Dialogs
+    if (showStaticDurationDialog) {
+        DurationPickerDialog(
+            title = "Static Duration",
+            currentValue = recordingSettings.staticDuration,
+            onDismiss = { showStaticDurationDialog = false },
+            onConfirm = { value ->
+                viewModel.updateStaticDuration(value)
+                showStaticDurationDialog = false
+            }
+        )
+    }
+
+    if (showStopGoDurationDialog) {
+        DurationPickerDialog(
+            title = "Stop & Go Duration",
+            currentValue = recordingSettings.stopGoDuration,
+            onDismiss = { showStopGoDurationDialog = false },
+            onConfirm = { value ->
+                viewModel.updateStopGoDuration(value)
+                showStopGoDurationDialog = false
+            }
+        )
+    }
+
+    if (showAutoSaveDialog) {
+        IntervalPickerDialog(
+            title = "Auto-save Interval",
+            currentValue = recordingSettings.autoSaveInterval,
+            onDismiss = { showAutoSaveDialog = false },
+            onConfirm = { value ->
+                viewModel.updateAutoSaveInterval(value)
+                showAutoSaveDialog = false
+            }
+        )
+    }
+
+    if (showNavigationRateDialog) {
+        RatePickerDialog(
+            title = "Navigation Rate",
+            currentValue = recordingSettings.navigationRate,
+            onDismiss = { showNavigationRateDialog = false },
+            onConfirm = { value ->
+                viewModel.updateNavigationRate(value)
+                showNavigationRateDialog = false
+            }
+        )
     }
 }
 
@@ -360,4 +504,140 @@ fun AboutItem(
             )
         }
     }
+}
+
+@Composable
+fun DurationPickerDialog(
+    title: String,
+    currentValue: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    var value by remember { mutableStateOf(currentValue.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text("Duration in seconds (minimum 10)")
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it.filter { char -> char.isDigit() } },
+                    label = { Text("Seconds") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val seconds = value.toIntOrNull() ?: 0
+                    if (seconds >= 10) {
+                        onConfirm(seconds)
+                    }
+                }
+            ) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun IntervalPickerDialog(
+    title: String,
+    currentValue: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    var value by remember { mutableStateOf(currentValue.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text("Interval in minutes (0 to disable)")
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it.filter { char -> char.isDigit() } },
+                    label = { Text("Minutes") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val minutes = value.toIntOrNull() ?: 0
+                    onConfirm(minutes)
+                }
+            ) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun RatePickerDialog(
+    title: String,
+    currentValue: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val rates = listOf(1, 2, 5, 10)
+    var selectedRate by remember { mutableStateOf(currentValue) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text("Select navigation rate in Hz")
+                Spacer(modifier = Modifier.height(16.dp))
+                rates.forEach { rate ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedRate = rate }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedRate == rate,
+                            onClick = { selectedRate = rate }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("$rate Hz")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selectedRate) }) {
+                Text("OK")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
