@@ -27,6 +27,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.geosit.gnss.data.gnss.FixType
 import com.geosit.gnss.data.model.RecordingMode
 import com.geosit.gnss.data.model.StopGoAction
+import com.geosit.gnss.ui.components.RecordingModeChip
+import com.geosit.gnss.ui.components.RecordingSettingsDialog
 import com.geosit.gnss.ui.viewmodel.RecordingViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -567,31 +569,6 @@ fun StopGoControlsCompact(
     }
 }
 
-@Composable
-fun RecordingModeChip(
-    selected: Boolean,
-    onClick: () -> Unit,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(label, style = MaterialTheme.typography.bodySmall)
-            }
-        },
-        modifier = Modifier.height(32.dp)
-    )
-}
-
 // Update functions for different modes
 private fun updateStaticMode(map: MapView, position: GeoPoint, fixType: FixType) {
     // Static marker (different from current position marker)
@@ -676,99 +653,4 @@ private fun updateStopGoMode(
             marker.position = position
         }
     }
-}
-
-// Recording Settings Dialog (simplified version for map)
-@Composable
-private fun RecordingSettingsDialog(
-    mode: RecordingMode,
-    onDismiss: () -> Unit,
-    onConfirm: (pointName: String, instrumentHeight: Double, staticDuration: Int) -> Unit
-) {
-    var pointName by remember { mutableStateOf("") }
-    var instrumentHeight by remember { mutableStateOf("") }
-    var staticDuration by remember { mutableStateOf(if (mode == RecordingMode.STOP_AND_GO) "30" else "60") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                when (mode) {
-                    RecordingMode.STATIC -> "Static Recording"
-                    RecordingMode.KINEMATIC -> "Kinematic Recording"
-                    RecordingMode.STOP_AND_GO -> "Stop & Go Recording"
-                }
-            )
-        },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = pointName,
-                    onValueChange = { pointName = it },
-                    label = {
-                        Text(
-                            when (mode) {
-                                RecordingMode.STATIC -> "Point Name"
-                                RecordingMode.KINEMATIC -> "Track Name"
-                                RecordingMode.STOP_AND_GO -> "Session Name"
-                            }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = instrumentHeight,
-                    onValueChange = {
-                        instrumentHeight = it.filter { char -> char.isDigit() || char == '.' }
-                    },
-                    label = { Text("Instrument Height (m)") },
-                    placeholder = { Text("0.0") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                if (mode == RecordingMode.STATIC || mode == RecordingMode.STOP_AND_GO) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = staticDuration,
-                        onValueChange = {
-                            staticDuration = it.filter { char -> char.isDigit() }
-                        },
-                        label = {
-                            Text(if (mode == RecordingMode.STATIC) "Duration (seconds)" else "Stop Duration (seconds)")
-                        },
-                        placeholder = { Text(if (mode == RecordingMode.STATIC) "60" else "30") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val height = instrumentHeight.toDoubleOrNull() ?: 0.0
-                    val duration = staticDuration.toIntOrNull() ?: 60
-
-                    onConfirm(
-                        pointName.ifEmpty { "Point_${System.currentTimeMillis()}" },
-                        height,
-                        duration
-                    )
-                }
-            ) {
-                Text("Start")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }

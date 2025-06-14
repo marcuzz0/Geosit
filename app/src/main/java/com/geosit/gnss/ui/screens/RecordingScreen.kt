@@ -4,20 +4,30 @@ package com.geosit.gnss.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.geosit.gnss.data.model.RecordingMode
 import com.geosit.gnss.data.model.StopGoAction
 import com.geosit.gnss.data.recording.RecordingRepository
+import com.geosit.gnss.ui.components.RecordingModeChip
+import com.geosit.gnss.ui.components.RecordingSettingsDialog
 import com.geosit.gnss.ui.viewmodel.RecordingViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -27,7 +37,6 @@ fun RecordingScreen(
     val connectionState by viewModel.connectionState.collectAsState()
     val recordingState by viewModel.recordingState.collectAsState()
     val gnssPosition by viewModel.gnssPosition.collectAsState()
-    val recordingSettings by viewModel.recordingSettings.collectAsState(initial = null)
 
     // Stati locali UI
     var selectedMode by remember { mutableStateOf(RecordingMode.STATIC) }
@@ -399,72 +408,23 @@ fun StopGoControlsCard(
                 }
             }
 
-            // Status text
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                when {
-                    stopGoState.isInStopPhase -> "Wait for countdown to complete..."
-                    stopGoState.canGo -> "Press GO to move to next point"
-                    stopGoState.canStop -> "Press STOP to record a point"
-                    else -> "Processing..."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Recent points
+            // Points list
             if (stopAndGoPoints.isNotEmpty()) {
-                Divider(
-                    modifier = Modifier.padding(vertical = 12.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                )
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "Points Recorded: ${stopAndGoPoints.count { it.action == StopGoAction.STOP }}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
+                    "Points: ${stopAndGoPoints.count { it.action == StopGoAction.STOP }}",
+                    style = MaterialTheme.typography.bodyMedium
                 )
-                stopAndGoPoints.takeLast(3).forEach { point ->
-                    Text(
-                        "${point.name} - ${point.action}",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
             }
         }
     }
 }
 
 @Composable
-fun RecordingModeChip(
-    selected: Boolean,
-    onClick: () -> Unit,
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(label)
-            }
-        },
-        modifier = Modifier.padding(horizontal = 4.dp)
-    )
-}
-
-@Composable
 fun PulsingRecordIcon() {
     val infiniteTransition = rememberInfiniteTransition()
     val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
+        initialValue = 0.3f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(600),
@@ -559,169 +519,4 @@ fun RecordingButton(
             style = MaterialTheme.typography.titleMedium
         )
     }
-}
-
-@Composable
-fun RecordingSettingsDialog(
-    mode: RecordingMode,
-    onDismiss: () -> Unit,
-    onConfirm: (pointName: String, instrumentHeight: Double, staticDuration: Int) -> Unit
-) {
-    var pointName by remember { mutableStateOf("") }
-    var instrumentHeight by remember { mutableStateOf("") }
-    var staticDuration by remember { mutableStateOf(if (mode == RecordingMode.STOP_AND_GO) "30" else "60") }
-
-    // Validation states
-    var pointNameError by remember { mutableStateOf(false) }
-    var instrumentHeightError by remember { mutableStateOf(false) }
-    var staticDurationError by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                when (mode) {
-                    RecordingMode.STATIC -> "Static Recording Settings"
-                    RecordingMode.KINEMATIC -> "Kinematic Recording Settings"
-                    RecordingMode.STOP_AND_GO -> "Stop & Go Settings"
-                }
-            )
-        },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = pointName,
-                    onValueChange = {
-                        pointName = it
-                        pointNameError = false
-                    },
-                    label = {
-                        Text(
-                            when (mode) {
-                                RecordingMode.STATIC -> "Point Name *"
-                                RecordingMode.KINEMATIC -> "Track Name *"
-                                RecordingMode.STOP_AND_GO -> "Session Name *"
-                            }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = pointNameError,
-                    supportingText = if (pointNameError) {
-                        { Text("This field is required") }
-                    } else null
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = instrumentHeight,
-                    onValueChange = {
-                        instrumentHeight = it.filter { char -> char.isDigit() || char == '.' }
-                        instrumentHeightError = false
-                    },
-                    label = { Text("Instrument Height (m) *") },
-                    placeholder = { Text("0.0") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = instrumentHeightError,
-                    supportingText = if (instrumentHeightError) {
-                        { Text("Please enter a valid height") }
-                    } else null
-                )
-
-                if (mode == RecordingMode.STATIC) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = staticDuration,
-                        onValueChange = {
-                            staticDuration = it.filter { char -> char.isDigit() }
-                            staticDurationError = false
-                        },
-                        label = { Text("Duration (seconds) *") },
-                        placeholder = { Text("60") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = staticDurationError,
-                        supportingText = if (staticDurationError) {
-                            { Text("Please enter a valid duration (min 10s)") }
-                        } else null
-                    )
-                }
-
-                if (mode == RecordingMode.STOP_AND_GO) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = staticDuration,
-                        onValueChange = {
-                            staticDuration = it.filter { char -> char.isDigit() }
-                            staticDurationError = false
-                        },
-                        label = { Text("Stop Duration (seconds) *") },
-                        placeholder = { Text("30") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = staticDurationError,
-                        supportingText = {
-                            if (staticDurationError) {
-                                Text("Please enter a valid duration (min 10s)")
-                            } else {
-                                Text("Time to record each stop point")
-                            }
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    "* Required fields",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    // Validate fields
-                    var hasError = false
-
-                    if (pointName.isBlank()) {
-                        pointNameError = true
-                        hasError = true
-                    }
-
-                    val height = instrumentHeight.toDoubleOrNull()
-                    if (height == null || height < 0) {
-                        instrumentHeightError = true
-                        hasError = true
-                    }
-
-                    val duration = staticDuration.toIntOrNull()
-                    if (duration == null || duration < 10) {
-                        staticDurationError = true
-                        hasError = true
-                    }
-
-                    if (!hasError) {
-                        onConfirm(
-                            pointName.trim(),
-                            height!!,
-                            duration!!
-                        )
-                    }
-                }
-            ) {
-                Text("Start")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }
