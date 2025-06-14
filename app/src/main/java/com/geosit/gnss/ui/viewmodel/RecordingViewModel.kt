@@ -2,7 +2,7 @@ package com.geosit.gnss.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.geosit.gnss.data.connection.ConnectionManager
+import com.geosit.gnss.ui.screens.connection.ConnectionManager
 import com.geosit.gnss.data.model.RecordingMode
 import com.geosit.gnss.data.model.StopGoAction
 import com.geosit.gnss.data.recording.RecordingRepository

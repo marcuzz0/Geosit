@@ -7,7 +7,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.geosit.gnss.data.connection.ConnectionManager
+import com.geosit.gnss.ui.screens.connection.ConnectionManager
 import com.geosit.gnss.data.model.Device
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import dagger.hilt.android.lifecycle.HiltViewModel

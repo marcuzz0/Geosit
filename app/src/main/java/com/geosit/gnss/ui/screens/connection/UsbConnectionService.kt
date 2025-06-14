@@ -1,4 +1,4 @@
-package com.geosit.gnss.data.connection
+package com.geosit.gnss.ui.screens.connection
 
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection

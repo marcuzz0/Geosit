@@ -1,4 +1,4 @@
-package com.geosit.gnss.data.connection
+package com.geosit.gnss.ui.screens.connection
 
 import kotlinx.coroutines.*
 import timber.log.Timber

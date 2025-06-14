@@ -1,4 +1,4 @@
-package com.geosit.gnss.data.connection
+package com.geosit.gnss.ui.screens.connection
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket

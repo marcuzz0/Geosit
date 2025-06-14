@@ -1,6 +1,6 @@
 package com.geosit.gnss.data.gnss
 
-import com.geosit.gnss.data.connection.ConnectionManager
+import com.geosit.gnss.ui.screens.connection.ConnectionManager
 import timber.log.Timber
 import javax.inject.Inject
 import kotlinx.coroutines.delay

@@ -1,7 +1,7 @@
 package com.geosit.gnss.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
-import com.geosit.gnss.data.connection.ConnectionManager
+import com.geosit.gnss.ui.screens.connection.ConnectionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 

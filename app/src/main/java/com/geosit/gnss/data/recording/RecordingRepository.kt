@@ -2,7 +2,7 @@ package com.geosit.gnss.data.recording
 
 import android.content.Context
 import android.os.Environment
-import com.geosit.gnss.data.connection.ConnectionManager
+import com.geosit.gnss.ui.screens.connection.ConnectionManager
 import com.geosit.gnss.data.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
